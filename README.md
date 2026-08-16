@@ -31,6 +31,16 @@ themed celebrations on your special days. Configure and control it from the
   <br><em>Clock in action.</em>
 </p>
 
+<p align="center">
+  <img src="images/score-events.gif" alt="Score-card event animations: a cricket wicket, a football goal, a three-pointer, a touchdown, a hockey goal and a rugby try" width="230">
+  <br><em>When something happens, the card says so — one animation per sport's own moments.</em>
+</p>
+
+<p align="center">
+  <img src="images/score-cards.png" alt="The live-score card in all six sports: cricket, football, basketball, American football, ice hockey and rugby" width="760">
+  <br><em>The clock never leaves. Rows 0–18 stay the clock; the card owns what's below.</em>
+</p>
+
 
 
 ## Features
