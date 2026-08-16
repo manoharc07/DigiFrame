@@ -209,8 +209,15 @@ void setup() {
   /* Boot diagnostics are worth waiting for; per-frame logging is not.
      Serial.print() blocks on the USB-CDC tx lock (default 100 ms, and
      longer still if a monitor is attached but not draining), so from here
-     on a logLine() from any core can cost core 1 a frame. Cap the wait. */
+     on a logLine() from any core can cost core 1 a frame. Cap the wait.
+
+     Guarded because setTxTimeoutMs exists on HWCDC only. Built without
+     CDCOnBoot=cdc, `Serial` is a UART HardwareSerial with no such method and
+     no such problem — a UART write does not take that lock. Building that way
+     is a legitimate choice, so it should not fail to compile. */
+#if ARDUINO_USB_CDC_ON_BOOT
   Serial.setTxTimeoutMs(SERIAL_TX_TIMEOUT_MS);
+#endif
   frameDueAt = millis();
 }
 
