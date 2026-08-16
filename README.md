@@ -1,15 +1,20 @@
 # DigiFrame ⏰
 
+[![Featured on XDA Developers](https://img.shields.io/badge/Featured%20on-XDA%20Developers-EE4C2C)](https://www.xda-developers.com/this-awesome-esp32-clock-lets-you-send-messages-to-it-anywhere-in-the-world/)
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/manoharc07)
+[![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)](LICENSE.md)
+
 A **64×64 HUB75 LED matrix smart clock** running on an ESP32-S3. It shows an
 NTP clock, live weather, a living ambient scene, looping GIFs, scrolling
-messages, and runs themed celebrations on your special days. Configure and
-control it from the **clock's own web dashboard** on your WiFi, a **Telegram
-bot**, or **Home Assistant** (MQTT).
+messages, **live sports scores** for teams and leagues you follow, and runs
+themed celebrations on your special days. Configure and control it from the
+**clock's own web dashboard** on your WiFi, a **Telegram bot**, or
+**Home Assistant** (MQTT).
 
 > Source-available for **DIY / noncommercial** use — contributions welcome. Commercial use needs a [separate license](#license).
 
-[![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)](LICENSE.md)
-[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/manoharc07)
+> 📰 **[Featured on XDA Developers](https://www.xda-developers.com/this-awesome-esp32-clock-lets-you-send-messages-to-it-anywhere-in-the-world/)** —
+> *"This awesome ESP32 clock lets you send messages to it anywhere in the world."*
 
 <p align="center">
   <img src="images/clock-poster-photo.png" alt="DigiFrame — a 64×64 LED matrix smart clock" width="400">
@@ -36,6 +41,13 @@ bot**, or **Home Assistant** (MQTT).
   upload your own. Any `c_*.gif` joins a "character pack" that makes random
   cameos.
 - **Messages** — scroll a note for a while, or pin one until you stop it.
+- **Live sports scores** — follow teams *or* whole leagues across cricket,
+  football, basketball, American football, ice hockey and rugby. When something
+  you follow kicks off, the lower two-thirds of the clock face becomes a score
+  card with the teams' own colours, and per-sport animations fire on the
+  moments worth looking up for. Several matches live at once rotate in turn,
+  and you can pin any match to the panel from the dashboard. Scores come
+  straight from ESPN's public API — no key, no account, no relay.
 - **Special days** — give a date a **type** (`custom` → fireworks, `birthday` →
   cake + confetti) and a message; at midnight the clock runs that themed
   celebration all day. Add them from any dashboard or Telegram.
@@ -141,15 +153,24 @@ shows a QR code.
 
 Scanning the panel QR joins the `DigiFrame` hotspot directly; the captive page
 then opens at `http://192.168.4.1`. Enter your WiFi there, and once the frame
-is online the same dashboard lives at `http://digiframe.local` — GIF upload,
-brightness, messages, weather location, Telegram config and live logs.
+is online the same dashboard lives at `http://digiframe.local`, in four tabs:
+
+- **Now** — what's live right now, a status line, and one tap to put any match
+  on the panel. Messages and brightness.
+- **Scores** — search ESPN for any team or league to follow, switch whole
+  sports on and off, and set rotation, effects and refresh rate.
+- **Content** — GIF upload, random cameos, special days.
+- **Settings** — WiFi, Telegram, weather location, timezone, MQTT, OTA, logs.
+
+The team and league pickers search ESPN from *your browser*, not the frame — it
+has neither the memory to hold a league list nor a reason to.
 
 ### 2. Telegram bot (anywhere)
 
 Create a bot with @BotFather, set the token + your chat id (via any dashboard),
 and control the clock remotely. Send `/menu` for the button menu.
 
-### 4. Home Assistant (MQTT)
+### 3. Home Assistant (MQTT)
 
 Enable MQTT and set your broker (e.g. the Mosquitto add-on) from any dashboard.
 The clock announces itself to Home Assistant via MQTT discovery as a device with
@@ -168,6 +189,26 @@ never touch LittleFS or the panel directly).
 
 Architecture details and invariants are in [`CLAUDE.md`](CLAUDE.md).
 
+### Testing and UI tooling
+
+There is no CI — verification is a clean compile plus two host-side tools that
+need no dependencies beyond the standard library:
+
+```bash
+python tests/run.py                 # everything
+python tests/run.py --only espn     # ESPN contract only — no device needed
+python dev/panelshot.py shot        # a true screenshot of the LED panel
+python dev/dashshot.py              # screenshot + audit the web dashboard
+```
+
+[`tests/`](tests/README.md) mocks nothing. The `espn` group pins every
+assumption the score feature makes about ESPN's undocumented API, so when
+scores break it tells you *which* assumption died — separating "ESPN changed"
+from "we broke it". [`dev/`](dev/README.md) makes the panel reviewable: the
+firmware mirrors every draw call into a shadow buffer and serves the presented
+frame over HTTP, so `panelshot.py` produces real screenshots rather than a
+simulation.
+
 ## Configuration & security
 
 `config.h` holds only compile-time **defaults** (placeholders like
@@ -181,8 +222,11 @@ network, and never port-forward it.
 
 ## Roadmap
 
-- **Smart widgets** — now-playing, stock/finance tickers, and other
-  at-a-glance widgets on the clock face.
+- **More widgets** — now-playing, stock/finance tickers and other at-a-glance
+  panels on the clock face, built the way live scores already is.
+- **Ball-accurate score events** — derived events currently infer a boundary
+  from a score delta; using the over count would tell a genuine four from three
+  singles in the same poll window.
 - **Cloud relay backend** — an outbound connection from the frame to a broker,
   so a cloud page can reach the clock from anywhere. A browser can't call the
   frame's LAN API from an `https://` page (mixed content), so a relay is the

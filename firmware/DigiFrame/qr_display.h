@@ -16,7 +16,10 @@
  * centered. QR wants dark-on-light, so the background is lit and modules are
  * unlit LEDs. Static image — redraw only when the text changes. */
 
-String qrLastText = "";
+/* qrLastText lives in globals.h: the setup QR is a static image that only
+   repaints when its text changes, so both wifi_manager.h and the /api/frame
+   screenshot endpoint (which needs to force one redraw to have anything to
+   capture) must be able to clear it, and both are included before this. */
 
 /* WIFI: payload reserves \ ; , : and " — escape them or a password
    containing any of them silently produces an unscannable/wrong network. */
@@ -42,7 +45,7 @@ static void qrToPanel(esp_qrcode_handle_t qrcode) {
       for (int x = 0; x < size; x++)
         if (esp_qrcode_get_module(qrcode, x, y))
           dma->fillRect(off + x * scale, off + y * scale, scale, scale, 0);
-    dma->flipDMABuffer();
+    panelPresent();
   }
 }
 

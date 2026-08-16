@@ -37,24 +37,22 @@ void startCelebration(const String &type, const String &message) {
           (celebType == "birthday" ? String(" cake.gif=") + (gifVisual ? "yes" : "no") : ""));
 }
 
+/* Phase timers below run every pass; only the drawing is paced (by the
+   shared frame clock, or by the GIF's own delay). */
 void runCelebration() {
-  static uint32_t lastTick = 0;
-  if (millis() - lastTick > 66) {          // keep animations ticking at ~15fps
-    lastTick = millis();
-    frameNo++;
-  }
   // alternate: ~45 s of the themed visual, then ~20 s of the message banner
   if (celebPhase == 0) {
     if (gifOpen) {
-      int res = gif.playFrame(true, NULL);
-      blitGifCanvas();
-      dma->flipDMABuffer();
-      if (res == 0) gif.reset();
-    } else {
+      int res = 1;
+      if (playGifFrameIfDue(&res)) {
+        panelPresent();
+        if (res == 0) gif.reset();
+      }
+    } else if (frameDue) {
       dma->fillScreen(0);
       if (celebType == "birthday") drawCakeAndCat(frameNo);
       else                          drawCelebrationScene(frameNo);
-      dma->flipDMABuffer();
+      panelPresent();
     }
     if (millis() - celebPhaseAt > 45000) {
       closeGif();
@@ -69,7 +67,7 @@ void runCelebration() {
       // fireworks drawn on the same back buffer, then flip once
       drawFirework(12, 10, frameNo,      dma->color565(255, 120, 160), dma->color565(255, 220, 120));
       drawFirework(50, 52, frameNo + 40, dma->color565(140, 200, 255), dma->color565(190, 150, 255));
-      dma->flipDMABuffer();
+      panelPresent();
     }
     if (millis() - celebPhaseAt > 20000) {
       celebPhase = 0;
@@ -92,8 +90,11 @@ void runCelebration() {
  *   8  Celebration – procedural cake theme (no GIF needed)
  *   9  Celebration – scroll banner + fireworks
  *  10  GIF  – cake.gif if present, else skip
+ *  11+ Live-score card – one step per registered sport, each firing that
+ *      sport's signature animation, so /test walks every layout and effect
  *  (restores original weather code and returns to clock when done) */
-#define TEST_STEPS       11
+#define TEST_SCORE_FIRST 11
+#define TEST_STEPS       (TEST_SCORE_FIRST + NUM_SPORTS)
 #define TEST_STEP_MS   4000   // ms per step
 
 void startTest(const String &chatId) {
@@ -116,10 +117,23 @@ void runTest() {
       // Done — restore everything
       wCode = testSavedWCode;
       closeGif();
+      clockSub    = SUB_AMBIENT;      // drop the forced score card
+      activeMatch = -1;
+      numFront    = 0;
       mode = MODE_CLOCK;
       logLine("Test mode done");
       if (testChat.length()) bot.sendMessage(testChat, "✅ Test complete — back to clock.");
       return;
+    }
+    // entering a score step: build that sport's card and fire its signature
+    // animation, so one /test run exercises every layout and every effect
+    if (testStep >= TEST_SCORE_FIRST) {
+      uint8_t s = testStep - TEST_SCORE_FIRST;
+      sportsDemoForce(s);
+      const SportModule *mod = SPORTS[s];
+      if (mod->numEvents) scoreTestEvent(mod->events[0].native);
+    } else if (clockSub == SUB_SCORE) {
+      clockSub = SUB_AMBIENT; activeMatch = -1; numFront = 0;
     }
   }
 
@@ -139,8 +153,7 @@ void runTest() {
 
   if (testStep <= 6) {
     // Clock face with spoofed weather/time
-    static uint32_t lastFace = 0;
-    if (ms - lastFace > 66) { lastFace = ms; renderClock(); }
+    if (frameDue) renderClock();
     return;
   }
 
@@ -152,17 +165,16 @@ void runTest() {
       scrollText = "HELLO! THIS IS A TEST MESSAGE";
       scrollX = PANEL_W;
     }
-    if (renderScroll(C_MSG)) dma->flipDMABuffer();
+    if (renderScroll(C_MSG)) panelPresent();
     return;
   }
 
   if (testStep == 8) {
     // Procedural celebration – cake theme
-    static uint32_t lastTick = 0;
-    if (ms - lastTick > 66) { lastTick = ms; frameNo++; }
+    if (!frameDue) return;
     dma->fillScreen(0);
     drawCakeAndCat(frameNo);
-    dma->flipDMABuffer();
+    panelPresent();
     return;
   }
 
@@ -174,12 +186,10 @@ void runTest() {
       scrollText = "CELEBRATION TIME!";
       scrollX = PANEL_W;
     }
-    static uint32_t lastTick = 0;
-    if (ms - lastTick > 66) { lastTick = ms; frameNo++; }
     if (renderScroll(C_MSG)) {
       drawFirework(12, 10, frameNo,      dma->color565(255, 120, 160), dma->color565(255, 220, 120));
       drawFirework(50, 52, frameNo + 40, dma->color565(140, 200, 255), dma->color565(190, 150, 255));
-      dma->flipDMABuffer();
+      panelPresent();
     }
     return;
   }
@@ -193,12 +203,18 @@ void runTest() {
       if (LittleFS.exists("/cake.gif")) openGif("/cake.gif", true);
       else { testStep++; testStepAt = ms; return; }  // skip if missing
     }
-    if (gifOpen) {
-      int res = gif.playFrame(true, NULL);
-      blitGifCanvas();
-      dma->flipDMABuffer();
+    int res = 1;
+    if (playGifFrameIfDue(&res)) {
+      panelPresent();
       if (res == 0) gif.reset();
     }
+    return;
+  }
+
+  if (testStep >= TEST_SCORE_FIRST) {
+    // Live-score card for one sport — renderClock() picks it up through
+    // clockSub, exactly as it does for a real match
+    if (frameDue) renderClock();
     return;
   }
 }

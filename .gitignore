@@ -10,3 +10,10 @@ build/
 
 # local Claude Code settings
 .claude/settings.local.json
+
+# dev tooling output — screenshots/films of the panel and dashboard
+dev/shots/
+
+# python bytecode from dev/ and tests/
+__pycache__/
+*.py[cod]

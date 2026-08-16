@@ -94,6 +94,13 @@ void saveConfig() {
   d["mqttPort"] = mqttPort;
   d["mqttUser"] = mqttUser;
   d["mqttPass"] = mqttPass;
+  d["sportEn"]   = sportEnable;
+  d["sportSrc"]  = sportSrc;
+  d["sportHold"] = sportHoldMin;
+  d["sportFx"]   = sportFx;
+  d["sportOn"]   = sportOnMask;
+  d["sportRot"]  = sportRotSec;
+  d["sportRef"]  = sportRefreshSec;
   File f = LittleFS.open("/config.json", "w");
   serializeJson(d, f);
   f.close();
@@ -117,6 +124,15 @@ void loadConfig() {
     if (d["mqttPort"].is<int>())         mqttPort   = d["mqttPort"].as<int>();
     if (d["mqttUser"].is<const char*>()) mqttUser   = d["mqttUser"].as<String>();
     if (d["mqttPass"].is<const char*>()) mqttPass   = d["mqttPass"].as<String>();
+    if (d["sportEn"].is<bool>())          sportEnable  = d["sportEn"].as<bool>();
+    if (d["sportSrc"].is<const char*>())  sportSrc     = d["sportSrc"].as<String>();
+    if (d["sportHold"].is<int>())         sportHoldMin = constrain(d["sportHold"].as<int>(), 0, 120);
+    if (d["sportFx"].is<int>())           sportFx      = constrain(d["sportFx"].as<int>(), 0, 2);
+    /* absent in files written before sports could be switched off: leave the
+       all-ones default, which is the behaviour those files expect */
+    if (d["sportOn"].is<int>())           sportOnMask  = (uint16_t)d["sportOn"].as<int>();
+    if (d["sportRot"].is<int>())          sportRotSec  = constrain(d["sportRot"].as<int>(), 0, 300);
+    if (d["sportRef"].is<int>())          sportRefreshSec = constrain(d["sportRef"].as<int>(), 0, 300);
   }
   f.close();
 }

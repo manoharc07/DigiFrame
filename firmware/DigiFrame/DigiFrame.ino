@@ -79,11 +79,18 @@
 #include <Update.h>
 
 #include "config.h"
+#include "capture.h"          // dev tool: panel screenshot shadow (must precede globals.h)
 #include "globals.h"
 #include "gif_player.h"
 #include "events_store.h"
+#include "sports_core.h"      // live scores: model, favourites store, poll task
+#include "espn_api.h"         // live scores: the ESPN provider behind sportSrc="http"
 #include "weather.h"
 #include "scene.h"
+#include "score_gfx.h"        // live scores: shared drawing toolkit
+#include "score_fx.h"         // live scores: generic event animations
+#include "sports_registry.h"  // live scores: the sport modules
+#include "score_widget.h"     // live scores: the dispatcher renderClock() calls
 #include "scroll.h"
 #include "party.h"
 #include "control.h"
@@ -123,8 +130,16 @@ void setup() {
   cfg.clkphase = false;            // flip if you see column shift
   cfg.double_buff = true;          // back-buffer drawing; flip atomically → zero tearing/flicker
   cfg.setPixelColorDepthBits(PANEL_COLOR_DEPTH);   // internal-DRAM budget — see config.h
-  dma = new MatrixPanel_I2S_DMA(cfg);
+  cfg.i2sspeed        = PANEL_I2S_HZ;      // pixel clock — see config.h
+  cfg.min_refresh_rate = PANEL_MIN_REFRESH;
+  dma = new CapturePanel(cfg);     // MatrixPanel_I2S_DMA + screenshot tee (capture.h)
   dma->begin();
+  // What the library actually achieved: below PANEL_MIN_REFRESH it will have
+  // spent colour depth to get there, and a low number here is exactly what
+  // low-brightness shimmer looks like on the panel.
+  Serial.printf("[panel] %d Hz scan @ %d bpp, %u MHz pixel clock\n",
+                dma->calculated_refresh_rate, PANEL_COLOR_DEPTH,
+                (unsigned)(PANEL_I2S_HZ / 1000000));
   heapReport("after dma->begin()");
   dma->setBrightness8(DAY_BRIGHTNESS);
   dma->fillScreen(0);
@@ -141,6 +156,7 @@ void setup() {
     Serial.println("LittleFS mount failed!");
   seedDefaultGifs();          // one-time copy of the embedded default pack
   loadEvents();
+  loadTeams();                // favourite teams for the live-score widget
   loadConfig();
   dma->setBrightness8(userBrightness);
 
@@ -180,26 +196,54 @@ void setup() {
   /* ---- create mutexes and start background tasks on core 0 ---- */
   logMutex    = xSemaphoreCreateMutex();
   tgReqMutex  = xSemaphoreCreateMutex();
+  sportsMutex = xSemaphoreCreateMutex();
   xTaskCreatePinnedToCore(tgTask,      "telegram", 8192, NULL, 1, &tgTaskHandle,      0);
   xTaskCreatePinnedToCore(weatherTask, "weather",  4096, NULL, 1, &weatherTaskHandle, 0);
   xTaskCreatePinnedToCore(mqttTask,    "mqtt",     6144, NULL, 1, &mqttTaskHandle,    0);
+  // 8192 rather than weather's 4096: a real score provider's JSON is far larger
+  xTaskCreatePinnedToCore(sportsTask,  "sports",   8192, NULL, 1, &sportsTaskHandle,  0);
 
   heapReport("end of setup()");
   Serial.println("DigiFrame ready.");
+
+  /* Boot diagnostics are worth waiting for; per-frame logging is not.
+     Serial.print() blocks on the USB-CDC tx lock (default 100 ms, and
+     longer still if a monitor is attached but not draining), so from here
+     on a logLine() from any core can cost core 1 a frame. Cap the wait. */
+  Serial.setTxTimeoutMs(SERIAL_TX_TIMEOUT_MS);
+  frameDueAt = millis();
 }
 
 /**********************  14. MAIN LOOP  *******************************/
+/* The ESP32 core calls loop() back-to-back with no yield of its own, so
+   this function IS core 1's scheduler: whatever it does every pass, it
+   does tens of thousands of times a second. Hence the shape below —
+   network servicing is throttled, rendering runs off the shared frame
+   clock (globals.h), and the pass ends by giving the core back. */
 void loop() {
-  web.handleClient();              // local dashboard / captive portal
-  wifiManagerTick();               // portal DNS, STA retries, auto-recover
-
   uint32_t ms = millis();
+
+  /* --- network servicing, throttled (see NET_SERVICE_MS in config.h) ---
+     handleClient() polls the listen socket and wifiManagerTick() calls
+     into the WiFi driver; both take locks shared with tasks on core 0, and
+     polling them at loop speed only buys contention. A few hundred Hz is
+     imperceptible on a dashboard click. --- */
+  static uint32_t lastNetAt = 0;
+  if (ms - lastNetAt >= NET_SERVICE_MS) {
+    lastNetAt = ms;
+    web.handleClient();            // local dashboard / captive portal
+    wifiManagerTick();             // portal DNS, STA retries, auto-recover
+  }
 
   /* --- once per second: time, night mode, celebration trigger --- */
   if (ms - lastSecondAt >= 1000) {
     lastSecondAt = ms;
     time_t now = time(nullptr);
     localtime_r(&now, &tmNow);
+    // dev overrides (POST /api/dev) — re-applied here because this tick and
+    // weatherTask would otherwise overwrite them a second later
+    if (devHour  >= 0) tmNow.tm_hour = devHour;
+    if (devWCode >= 0) wCode = devWCode;
 
     // night mode (skipped during a celebration; setup QR must stay scannable).
     // Night is a *cap*, not a fixed level: it dims down to NIGHT_BRIGHTNESS,
@@ -230,6 +274,10 @@ void loop() {
       closeGif(); mode = MODE_CLOCK;
       logLine("celebration auto-ended (date rolled over)");
     }
+
+    // publish the latest score poll and decide whether the clock face shows
+    // its ambient scene or the live-score card (sports_core.h)
+    sportsTick();
   }
 
   /* --- weather every 20 min — handled by weatherTask on core 0 --- */
@@ -267,15 +315,30 @@ void loop() {
       case TGC_EVENT_DEL:  ctlDelEvent(req.strArg);                     break;
       case TGC_SET_MQTT:   ctlSetMqttJson(req.strArg);                  break;
       case TGC_SET_TZ:     ctlSetTz(req.strArg.toInt());                break;
+      case TGC_TEAM_ADD:   ctlAddTeamJson(req.strArg);                  break;
+      case TGC_TEAM_DEL:   ctlDelTeam(req.strArg);                      break;
+      case TGC_SET_SPORTS: ctlSetSportsJson(req.strArg);                break;
+      case TGC_ESPN_CAT:   ctlSaveEspnCatalogue(req.intArg, req.strArg); break;
       default: break;
     }
+  }
+
+  /* --- frame clock: one phase-correcting deadline for every renderer ---
+     Advancing by exact FRAME_MS steps means a slow pass costs one frame
+     instead of permanently shifting the cadence; the resync guard stops a
+     long stall from triggering a catch-up burst. See globals.h. --- */
+  frameDue = false;
+  if ((int32_t)(ms - frameDueAt) >= 0) {
+    frameDue    = true;
+    frameDueAt += FRAME_MS;
+    if ((int32_t)(ms - frameDueAt) >= 0) frameDueAt = ms + FRAME_MS;  // stalled: resync
+    frameNo++;                     // the animation step counter every renderer reads
   }
 
   /* --- render by mode --- */
   switch (mode) {
     case MODE_CLOCK: {
-      static uint32_t lastFace = 0;
-      if (ms - lastFace > 66) { lastFace = ms; renderClock(); }  // ~15 fps scene
+      if (frameDue) renderClock();
       // random character cameo: open the GIF and switch to MODE_GIF for one pass;
       // loop() drives playback naturally — no blocking busy-wait
       if (charEveryMs && ms - lastIdleAt > charEveryMs) {
@@ -286,28 +349,31 @@ void loop() {
       break;
     }
     case MODE_MSG:
-      if (renderScroll(C_MSG)) dma->flipDMABuffer();
+      if (renderScroll(C_MSG)) panelPresent();
       if (msgEndsAt && ms > msgEndsAt) { mode = MODE_CLOCK; }
       break;
     case MODE_GIF:
+      // Paced by the GIF's own inter-frame delay, not the frame clock —
+      // playGifFrameIfDue() decodes without blocking the loop (gif_player.h).
       if (gifOpen) {
-        int res = gif.playFrame(true, NULL);
-        blitGifCanvas();
-        dma->flipDMABuffer();
-        int err = gif.getLastError();
-        if (err != GIF_SUCCESS && err != GIF_EMPTY_FRAME) {
-          // A GIF that can't be decoded would otherwise loop forever on a
-          // black screen — report it once and return to the clock.
-          // (GIF_EMPTY_FRAME is harmless — some GIFs have blank frames.)
-          logLine("GIF decode error err=" + String(err) + " (" + currentGifPath + ") -> clock");
-          closeGif();
-          mode = MODE_CLOCK;
-        } else if (res == 0) {
-          if (gifIsUserPlay) {
-            gif.reset();
-          } else {
+        int res = 1;
+        if (playGifFrameIfDue(&res)) {
+          panelPresent();
+          int err = gif.getLastError();
+          if (err != GIF_SUCCESS && err != GIF_EMPTY_FRAME) {
+            // A GIF that can't be decoded would otherwise loop forever on a
+            // black screen — report it once and return to the clock.
+            // (GIF_EMPTY_FRAME is harmless — some GIFs have blank frames.)
+            logLine("GIF decode error err=" + String(err) + " (" + currentGifPath + ") -> clock");
             closeGif();
             mode = MODE_CLOCK;
+          } else if (res == 0) {
+            if (gifIsUserPlay) {
+              gif.reset();
+            } else {
+              closeGif();
+              mode = MODE_CLOCK;
+            }
           }
         }
       } else mode = MODE_CLOCK;
@@ -322,4 +388,12 @@ void loop() {
       renderSetupQR();             // static QR; redraws only when it changes
       break;
   }
+
+  /* Give core 1 back between frames. Without this loop() never blocks, so
+     core 1's idle task never runs and the loop spins at full speed doing
+     nothing but re-checking deadlines — burning the core and hammering the
+     locks the WiFi/lwIP side wants. One tick (1 ms) is far below FRAME_MS,
+     so it costs no render latency; the phase-correcting deadline absorbs
+     the sub-tick rounding. */
+  if (!frameDue) vTaskDelay(1);
 }

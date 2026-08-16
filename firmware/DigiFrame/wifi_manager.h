@@ -81,12 +81,23 @@ bool wifiConnect(uint32_t timeoutMs) {
   return WiFi.status() == WL_CONNECTED;
 }
 
-/* Called every loop() iteration on core 1. */
+/* Called from loop()'s network-service slot on core 1 (every
+   NET_SERVICE_MS). The captive-portal DNS is answered at that full rate;
+   everything below it is housekeeping on 10-60 s timers that only needs a
+   few Hz. The split matters because WiFi.status() reaches into the WiFi
+   driver and takes the lock the driver task holds — polling it from the
+   render core hundreds of times a second is pure contention, and the retry
+   logic below cannot act any sooner for it. */
 void wifiManagerTick() {
   uint32_t ms = millis();
 
+  if (portalActive) dnsServer.processNextRequest();
+
+  static uint32_t lastHousekeepAt = 0;
+  if (ms - lastHousekeepAt < WIFI_TICK_MS) return;
+  lastHousekeepAt = ms;
+
   if (portalActive) {
-    dnsServer.processNextRequest();
     if (WiFi.status() == WL_CONNECTED) { stopPortal(); return; }
 
     /* diagnostic: async scan between retries — is the target SSID even
