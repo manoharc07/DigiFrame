@@ -680,11 +680,15 @@ void drawAmbient() {
         drawSpark(4 + i * 10, TOP + (prng8(i * 7 + frameNo / 6) % 16), C_ACCENT);
   }
 
-  /* --- playful extras: drifting balloon + soft sparkles --- */
+  /* --- playful extras: drifting balloon + soft sparkles ---
+     The balloon vanishes at the scene's top edge, as if it floated
+     off-scene: its 40-row rise used to carry it into rows 0-18 and paint
+     it over the AM/PM text — the clock block is inviolate (CLAUDE.md). */
   uint32_t bt = frameNo % 900;
   if (bt < 220) {
     int by = BOT - (int)((bt / 220.0f) * 40);
     int bx = 48 + (int)(sinf(bt / 18.0f) * 2);
+    if (by - 3 < 20) { bx = -10; by = -10; }   // above the scene: skip below
     uint16_t balls[3] = { dma->color565(255,120,150),
                           dma->color565(140,200,255),
                           dma->color565(255,210,120) };
@@ -775,8 +779,9 @@ void drawWeatherBg() {
   }
 }
 
+/* Callers must gate this on `frameDue` — the animation step counter
+   `frameNo` is advanced centrally by the frame clock in loop(). */
 void renderClock() {
-  frameNo++;
   dma->fillScreen(0);      // safe: writing to back buffer, DMA scans front buffer
   drawWeatherBg();
   char buf[20];
@@ -817,24 +822,36 @@ void renderClock() {
     dma->drawFastHLine(2, 17, secs, dma->color565(110, 55, 85));
   dma->drawPixel(2 + secs, 17, ((frameNo / 3) % 2) ? C_ACCENT : C_TIME);
 
-  /* --- living scene (rows 20-44) --- */
-  drawAmbient();
+  /* --- rows 19-63: either the living scene + footer, or, while a followed
+     match is live, the score card (score_widget.h). The clock block above is
+     identical either way — that is the whole point of the sub-mode. --- */
+  if (clockSub == SUB_SCORE) {
+    drawScoreWidget(frameNo);
+  } else {
+    if (sceneNeedsReset) {                // came back from the score card:
+      sceneNeedsReset = false;            // restart cleanly instead of resuming
+      sceneEvent  = SCN_NONE;             // a sprite mid-walk from where it froze
+      nextSceneAt = millis() + 3000;
+    }
+    /* --- living scene (rows 20-44) --- */
+    drawAmbient();
 
-  /* --- footer: date/temp block and the potted plant share the same
-     top and bottom edges (rows 47-62), so nothing floats in dead space --- */
-  static const char *DOW[7] = {"SUN","MON","TUE","WED","THU","FRI","SAT"};
-  snprintf(buf, sizeof(buf), "%s %d", DOW[tmNow.tm_wday], tmNow.tm_mday);
-  dma->setTextColor(C_DATE);
-  dma->setCursor(2, 47);
-  dma->print(buf);
-  if (!isnan(wTemp)) {
-    snprintf(buf, sizeof(buf), "%dC", (int)round(wTemp));
-    dma->setTextColor(C_TEMP);
-    dma->setCursor(2, 55);
+    /* --- footer: date/temp block and the potted plant share the same
+       top and bottom edges (rows 47-62), so nothing floats in dead space --- */
+    static const char *DOW[7] = {"SUN","MON","TUE","WED","THU","FRI","SAT"};
+    snprintf(buf, sizeof(buf), "%s %d", DOW[tmNow.tm_wday], tmNow.tm_mday);
+    dma->setTextColor(C_DATE);
+    dma->setCursor(2, 47);
     dma->print(buf);
+    if (!isnan(wTemp)) {
+      snprintf(buf, sizeof(buf), "%dC", (int)round(wTemp));
+      dma->setTextColor(C_TEMP);
+      dma->setCursor(2, 55);
+      dma->print(buf);
+    }
+    drawWeatherIconAnim(24, 54, frameNo); // animated icon, clear of the date row
+    drawPottedPlant(41, 59, frameNo);     // wider pot fills the right column edge-to-edge
   }
-  drawWeatherIconAnim(24, 54, frameNo);   // animated icon, clear of the date row
-  drawPottedPlant(41, 59, frameNo);       // wider pot fills the right column edge-to-edge
-  dma->flipDMABuffer();                   // present completed back buffer atomically
+  panelPresent();                   // present completed back buffer atomically
 }
 

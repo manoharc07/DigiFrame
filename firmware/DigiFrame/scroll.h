@@ -2,10 +2,16 @@
 #pragma once
 
 /**********************  9. SCROLLING TEXT  ***************************/
-uint32_t lastScrollAt = 0;
+/* Speed is expressed in pixels per second and stepped through a 1/256-px
+   accumulator, so the text moves at the same rate whatever RENDER_FPS is
+   and a dropped frame costs a frame, not a slowdown. (It used to advance
+   1 px per 45 ms gate of its own, which both drifted and hard-coded the
+   speed to the gate.) */
+#define SCROLL_PX_PER_SEC 22
+static uint32_t scrollAccum = 0;           // sub-pixel remainder, 1/256 px
+
 bool renderScroll(uint16_t color) {        // returns true if a new frame was drawn
-  if (millis() - lastScrollAt < 45) return false;   // scroll speed limiter
-  lastScrollAt = millis();
+  if (!frameDue) return false;             // paced by the shared frame clock
   dma->fillScreen(0);
   dma->setTextWrap(false);
   dma->setTextSize(2);
@@ -14,7 +20,9 @@ bool renderScroll(uint16_t color) {        // returns true if a new frame was dr
   dma->print(scrollText);
   drawSpark(4, 54, C_ACCENT);
   drawSpark(53, 54, C_ACCENT);
-  scrollX--;
+  scrollAccum += (SCROLL_PX_PER_SEC * FRAME_MS * 256UL) / 1000UL;
+  scrollX     -= (int)(scrollAccum >> 8);
+  scrollAccum &= 0xFF;
   // Measure exact rendered width once per text change using getTextBounds,
   // so the loop point is pixel-perfect regardless of string content.
   static String lastMeasured = "";

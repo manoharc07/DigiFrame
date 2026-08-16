@@ -109,8 +109,257 @@ void ctlSetMqttJson(const String &json) {
   ctlSetMqtt(d["enable"] | false, d["host"] | "", d["port"] | 1883, d["user"] | "", d["pass"] | "");
 }
 
+/* ---- live scores: favourite teams + widget config ----
+   Team ids are only unique within a sport ("eng" is both a cricket and a rugby
+   side), so anything addressing a favourite from outside uses "sportKey/id". */
+static int favIndexOf(const String &sportKey, const String &teamId) {
+  int s = sportIndexByKey(sportKey.c_str());
+  if (s < 0) return -1;
+  for (int i = 0; i < numFavTeams; i++)
+    if (favTeams[i].sport == (uint8_t)s && favTeams[i].id == teamId) return i;
+  return -1;
+}
+bool ctlAddTeam(const String &sportKey, const String &teamId) {
+  int s = sportIndexByKey(sportKey.c_str());
+  if (s < 0) return false;
+  const SportModule *mod = SPORTS[s];
+  const TeamEntry *te = nullptr;
+  for (uint8_t i = 0; i < mod->numTeams; i++)
+    if (teamId == mod->catalogue[i].id) { te = &mod->catalogue[i]; break; }
+  if (!te) return false;
+  if (favIndexOf(sportKey, teamId) >= 0) return true;      // already following
+  if (numFavTeams >= MAX_FAV_TEAMS) return false;
+  favTeams[numFavTeams++] = { String(te->id), String(te->name), String(te->abbr),
+                              (uint8_t)s, String(""), String("") };
+  saveTeams();
+  demoBuilt = false;                     // rebuild the demo feed around it
+  sportsNow = true;
+  logLine("following " + String(te->name) + " (" + mod->label + ")");
+  return true;
+}
+/* key is "sportKey/teamId" */
+bool ctlDelTeam(const String &key) {
+  int slash = key.indexOf('/');
+  if (slash < 0) return false;
+  int k = favIndexOf(key.substring(0, slash), key.substring(slash + 1));
+  if (k < 0) return false;
+  String gone = favTeams[k].name;
+  for (int j = k; j < numFavTeams - 1; j++) favTeams[j] = favTeams[j + 1];
+  numFavTeams--;
+  saveTeams();
+  demoBuilt = false;
+  sportsNow = true;
+  logLine("unfollowed " + gone);
+  return true;
+}
+/* ---- ESPN team catalogue (espn_api.h) ----
+   Written here rather than in the fetcher because the fetch runs on core 0,
+   which must never touch LittleFS. Core 0 parses and posts; this runs on
+   core 1 and does the write. */
+void ctlSaveEspnCatalogue(uint8_t sportIdx, const String &json) {
+  if (sportIdx >= NUM_SPORTS) return;
+  File f = LittleFS.open(espnCataloguePath(sportIdx), "w");
+  if (!f) { logLine("ESPN catalogue: write failed"); return; }
+  f.print(json);
+  f.close();
+}
+
+/* The cached list for one sport, or "[]" plus a background refresh request. */
+String ctlEspnTeamsJson(const String &sportKey) {
+  int s = sportIndexByKey(sportKey.c_str());
+  if (s < 0) return "[]";
+  String path = espnCataloguePath((uint8_t)s);
+  if (!LittleFS.exists(path)) { espnCatWanted = s; sportsNow = true; return "[]"; }
+  File f = LittleFS.open(path, "r");
+  String out = f.readString();
+  f.close();
+  return out.length() ? out : String("[]");
+}
+
+void ctlRefreshEspnCatalogue(const String &sportKey) {
+  int s = sportIndexByKey(sportKey.c_str());
+  if (s < 0) return;
+  espnCatWanted = s;
+  sportsNow = true;
+  logLine("ESPN catalogue refresh queued: " + sportKey);
+}
+
+/* Follow an ESPN team. Unlike ctlAddTeam this does not need a catalogue
+   entry — the id, name, abbreviation and league come from ESPN's own search,
+   which is the only way to follow a side the hardcoded tables never knew
+   about. `league` may be empty (cricket has none, and discovery there goes
+   through the personalized header anyway). */
+bool ctlAddEspnTeam(const String &sportKey, const String &espnId,
+                    const String &name, const String &abbr, const String &league) {
+  int s = sportIndexByKey(sportKey.c_str());
+  if (s < 0 || !espnId.length()) return false;
+  for (int i = 0; i < numFavTeams; i++)
+    if (favTeams[i].sport == (uint8_t)s && favTeams[i].espn == espnId) return true;
+  if (numFavTeams >= MAX_FAV_TEAMS) return false;
+  favTeams[numFavTeams++] = { espnId, name.length() ? name : abbr,
+                              abbr.length() ? abbr : String("?"),
+                              (uint8_t)s, espnId, league };
+  saveTeams();
+  demoBuilt = false;
+  sportsNow = true;
+  logLine("following " + (name.length() ? name : abbr) + " (ESPN " + espnId +
+          (league.length() ? " / " + league : String("")) + ")");
+  return true;
+}
+
+/* Follow a whole league. `league` is ESPN's slug or numeric series id
+   ("eng.1", "270559") as picked in the browser from ESPN's own league list. */
+bool ctlFollowLeague(const String &sportKey, const String &league, const String &name) {
+  int s = sportIndexByKey(sportKey.c_str());
+  if (s < 0 || !league.length()) return false;
+  for (int i = 0; i < numFavTeams; i++)
+    if (favTeams[i].sport == (uint8_t)s && followIsLeague(favTeams[i]) &&
+        favTeams[i].id == league) return true;
+  if (numFavTeams >= MAX_FOLLOWS) return false;
+  String nm = name.length() ? name : league;
+  /* abbr is what the dashboard list shows; a league has no 3-letter form, so
+     take the slug's leading segment ("eng.1" -> "ENG") */
+  String ab = league.substring(0, league.indexOf('.') > 0 ? league.indexOf('.') : 4);
+  ab.toUpperCase();
+  favTeams[numFavTeams++] = { league, nm, ab, (uint8_t)s, String(""), league, FOLLOW_LEAGUE };
+  saveTeams();
+  sportsNow = true;
+  logLine("following league " + nm + " (" + league + ")");
+  return true;
+}
+
+/* Which sports may take the panel. Not a poll of its own: it gates the
+   leagues and teams already followed under that sport. */
+void ctlSetSportEnabled(uint8_t sportIdx, bool on) {
+  if (sportIdx >= NUM_SPORTS) return;
+  if (on) sportOnMask |=  (uint16_t)(1u << sportIdx);
+  else    sportOnMask &= (uint16_t)~(1u << sportIdx);
+  saveConfig();
+  sportsNow = true;
+  logLine(String(SPORTS[sportIdx]->label) + (on ? " on" : " off"));
+}
+/* 0 = each sport picks its own; otherwise one tick for all of them.
+   Clamped at 5 s because sportsTask only wakes that often. */
+void ctlSetRefresh(int secs) {
+  sportRefreshSec = secs <= 0 ? 0 : constrain(secs, 5, 300);
+  saveConfig();
+  sportsNow = true;
+  logLine("score refresh " + String(sportRefreshSec ? String(sportRefreshSec) + "s"
+                                                    : String("per sport")));
+}
+void ctlSetRotate(int secs) {
+  sportRotSec = constrain(secs, 0, 300);
+  saveConfig();
+  logLine("score rotation " + String(sportRotSec ? String(sportRotSec) + "s" : "off"));
+}
+
+/* Put a specific live match on the panel. Everything needed comes from the
+   caller — the dashboard reads it off ESPN's scoreboard in the browser — so
+   the frame skips discovery entirely and starts ticking on the next poll. */
+bool ctlPinMatch(const String &sportKey, const String &league, const String &eventId,
+                 const String &homeId, const String &awayId) {
+  int s = sportIndexByKey(sportKey.c_str());
+  if (s < 0 || !eventId.length() || !homeId.length() || !awayId.length()) return false;
+#if ESPN_ENABLE
+  espnSetPin((uint8_t)s, league.c_str(), eventId.c_str(), homeId.c_str(), awayId.c_str());
+#endif
+  strlcpy(scorePinned, eventId.c_str(), sizeof(scorePinned));
+  if (!sportEnable) { sportEnable = true; saveConfig(); }   // or it can never show
+  sportsNow = true;
+  logLine("pinned event " + eventId + " (" + sportKey + ")");
+  return true;
+}
+void ctlUnpin() {
+  if (!scorePinned[0]) return;
+  scorePinned[0] = 0;
+#if ESPN_ENABLE
+  espnClearPin();
+#endif
+  sportsNow = true;
+  logLine("pin cleared");
+}
+
+bool ctlAddTeamJson(const String &json) {
+  JsonDocument d;
+  if (deserializeJson(d, json)) return false;
+  return ctlAddTeam(d["sport"] | "", d["id"] | "");
+}
+String ctlListTeamsJson() {
+  JsonDocument doc;
+  JsonArray arr = doc.to<JsonArray>();
+  for (int i = 0; i < numFavTeams; i++) {
+    JsonObject o = arr.add<JsonObject>();
+    o["key"]   = String(SPORTS[favTeams[i].sport]->key) + "/" + favTeams[i].id;
+    o["sport"] = SPORTS[favTeams[i].sport]->label;
+    o["name"]  = favTeams[i].name;
+    o["abbr"]  = favTeams[i].abbr;
+    /* The dashboard shows these so a favourite that will never go live is
+       visible as such: no espn id means the demo feed only, and a missing
+       league is why an otherwise-correct team never gets discovered. */
+    o["espn"]  = favTeams[i].espn;
+    o["lg"]    = favTeams[i].league;
+    o["kind"]  = followIsLeague(favTeams[i]) ? "league" : "team";
+    o["si"]    = favTeams[i].sport;
+    o["on"]    = sportIsOn(favTeams[i].sport);
+  }
+  String out; serializeJson(doc, out); return out;
+}
+/* the whole registry, so the dashboard dropdown needs no hardcoded lists —
+   this is what makes "add a sport" a one-file job */
+String ctlCatalogueJson() {
+  JsonDocument doc;
+  JsonArray arr = doc.to<JsonArray>();
+  for (uint8_t s = 0; s < NUM_SPORTS; s++) {
+    JsonObject o = arr.add<JsonObject>();
+    o["key"]   = SPORTS[s]->key;
+    o["label"] = SPORTS[s]->label;
+    /* ESPN's own sport slug, so the dashboard can map a search result onto a
+       sport without a second hardcoded table — "add a sport" stays one file. */
+    o["espn"]  = SPORTS[s]->espnSport;
+    o["dl"]    = SPORTS[s]->espnLeague;    // default league, for the picker
+    o["on"]    = sportIsOn(s);             // sport favourite: may it take the panel
+    JsonArray t = o["teams"].to<JsonArray>();
+    for (uint8_t i = 0; i < SPORTS[s]->numTeams; i++) {
+      JsonObject e = t.add<JsonObject>();
+      e["id"]   = SPORTS[s]->catalogue[i].id;
+      e["name"] = SPORTS[s]->catalogue[i].name;
+    }
+    JsonArray ev = o["fx"].to<JsonArray>();      // every animation this sport can fire
+    for (uint8_t i = 0; i < SPORTS[s]->numEvents; i++)
+      ev.add(SPORTS[s]->events[i].native);
+  }
+  String out; serializeJson(doc, out); return out;
+}
+void ctlSetSports(bool en, const String &src, int holdMin, int fx) {
+  sportEnable  = en;
+  if (src.length()) sportSrc = src;
+  sportHoldMin = constrain(holdMin, 0, 120);
+  sportFx      = (uint8_t)constrain(fx, 0, 2);
+  saveConfig();
+  sportsNow = true;
+  logLine("live scores " + String(en ? "on" : "off") + " (source " + sportSrc + ")");
+}
+void ctlSetSportsJson(const String &json) {
+  JsonDocument d;
+  if (deserializeJson(d, json)) return;
+  ctlSetSports(d["enable"] | false, d["src"] | "", d["hold"] | 5, d["fx"] | 2);
+}
+void ctlScorePreview(bool on) {
+  scorePreview = on;
+  demoBuilt = false;
+  sportsNow = true;
+  logLine(String("score preview ") + (on ? "on" : "off"));
+}
+
 void ctlStop() {
   if (mode == MODE_TEST) wCode = testSavedWCode;  // restore spoofed weather
+  if (scorePreview) ctlScorePreview(false);
+  ctlUnpin();                    // "back to clock" also means "stop showing that match"
+  // lift any /api/dev scene overrides too, so "stop" always means "back to
+  // the real clock" no matter which front end put the panel where it is
+  if (devWCode >= 0 && devSavedWCode >= 0) wCode = devSavedWCode;
+  devHour = devWCode = devSavedWCode = -1;
+  sportsFreeze = false;          // let real polls drive the score card again
   closeGif();
   mode = MODE_CLOCK;
 }
@@ -224,6 +473,46 @@ String ctlStatusJson() {
   d["mqttHost"] = mqttHost;
   d["mqttPort"] = mqttPort;
   d["mqttUser"] = mqttUser;
+  d["sportEn"]   = sportEnable;
+  d["sportSrc"]  = sportSrc;
+  d["sportHold"] = sportHoldMin;
+  d["sportFx"]   = sportFx;
+  d["sportPrev"] = scorePreview;
+  d["sportRot"]  = sportRotSec;
+  d["sportRef"]  = sportRefreshSec;
+  d["sportPoll"] = (int)sportPollMs;
+  d["sportMask"] = sportOnMask;
+  d["sportPin"]  = scorePinned;       // event id the user pinned, or ""
+  d["sportEv"]     = evLastNative;
+  d["sportEvAge"]  = evLastAt ? (int)((millis() - evLastAt) / 1000) : -1;
+  d["sportEvN"]    = evLastCount;
+  d["sportOn"]   = (clockSub == SUB_SCORE);
+  d["sportAge"]  = lastScoreAt ? (int)((millis() - lastScoreAt) / 1000) : -1;
+  d["sportErr"]  = sportLastErr;
+  {
+    const LiveMatch *am = activeMatchPtr();
+    d["sportNow"] = am ? String(am->home.abbr) + " " + am->home.score + "-" +
+                         am->away.score + " " + am->away.abbr
+                       : String("");
+  }
+  /* What the poll actually produced. Without this, a match that is fetched and
+     parsed but then rejected by sportsEligible() is indistinguishable from one
+     that was never fetched — which is exactly the failure that cost the most
+     time to find. The dashboard shows it when nothing is on the panel. */
+  {
+    static const char *ST[] = {"upcoming", "live", "break", "ended", "suspended"};
+    JsonArray dbg = d["sportDbg"].to<JsonArray>();
+    for (uint8_t i = 0; i < numFront; i++) {
+      const LiveMatch &m = scoreFront[i];
+      JsonObject o = dbg.add<JsonObject>();
+      o["id"]    = m.id;
+      o["sport"] = SPORTS[m.sport]->key;
+      o["state"] = ST[m.state % 5];
+      o["fav"]   = m.home.fav || m.away.fav;
+      o["s"]     = String(m.home.abbr) + " " + m.home.score + "-" +
+                   m.away.score + " " + m.away.abbr;
+    }
+  }
   String out;
   serializeJson(d, out);
   return out;

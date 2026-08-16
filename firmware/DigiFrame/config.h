@@ -49,6 +49,77 @@
 #define MQTT_USER ""
 #define MQTT_PASS ""
 
+/* ---- render loop / core-1 pacing ----
+   Core 1 runs the renderer, the WebServer, the captive DNS and every
+   LittleFS touch in one cooperative loop(), and the ESP32 core calls
+   loop() back-to-back with no yield at all. Three knobs keep that loop
+   from stealing time from the render cadence: */
+#define RENDER_FPS      15   // content frame rate (see FRAME_MS in globals.h).
+                             // The ambient scene, celebration and score
+                             // animations are all step-tuned for 15 — raising
+                             // this speeds every animation up proportionally.
+#define NET_SERVICE_MS   2   // how often loop() polls the WebServer + WiFi
+                             // manager. These are lwIP/WiFi-driver calls that
+                             // take the same locks the WiFi task holds; every
+                             // pass costs contention and buys no latency, so
+                             // poll at ~500 Hz instead of ~50 kHz.
+#define WIFI_TICK_MS   250   // wifiManagerTick() housekeeping cadence (the
+                             // captive-portal DNS still runs at NET_SERVICE_MS)
+#define GIF_MIN_FRAME_MS 20  // floor for a GIF's own frame delay — many GIFs
+                             // declare 0, which would busy-blit the panel
+#define SERIAL_TX_TIMEOUT_MS 10  // applied after setup(). Serial.print blocks
+                             // on the USB-CDC tx lock for up to this long, and
+                             // a blocked logLine() on core 1 is a dropped
+                             // frame. Raise to 100 to debug boot output.
+
+/* ---- live scores from the ESPN public API (espn_api.h) ----
+   No key, no account. Verified 2026-08-15 to serve over plain HTTP, which
+   is why this costs no internal DRAM: a TLS session is ~32 KB and this
+   board only has ~39 KB free once WiFi and the panel are up (see the
+   PANEL_COLOR_DEPTH note below). Scores are public read-only data, so
+   plaintext is an acceptable trade — the worst a MITM can do is show the
+   wrong score on a clock.
+
+   Polling is tiered because the full scoreboard is far too heavy to poll:
+   NFL measured 281 KB. Discovery finds *which* match to watch and when it
+   starts; the live tick then costs ~830 bytes. */
+#define ESPN_ENABLE        1
+#define ESPN_LIVE_MS       15000UL      // live tick while a followed match is on
+#define ESPN_DISCOVER_MS   600000UL     // 10 min: look for the next fixture
+#define ESPN_PREGAME_MS    60000UL      // 1 min once kickoff is close
+#define ESPN_CATALOGUE_H   168          // hours between team-catalogue refreshes
+#define ESPN_MIN_GAP_MS    1200UL       // hard floor between any two requests
+#define ESPN_HTTP_TIMEOUT  8000         // per-request timeout
+/* ---- following a whole league ----
+   A league follow cannot use the scoreboard: even filtered to one day, NFL's
+   measured 147 KB on an in-season Sunday (271 KB unfiltered). The core API has
+   a far cheaper "what is on today": events?dates is ~1 KB for a full slate and
+   each competition status is ~350 B, so the scan stops at the first live match
+   and usually costs two calls. */
+#define ESPN_SCAN_MS       300000UL     // 5 min: re-scan a league for a live match
+#define ESPN_SCAN_MAX      8            // events inspected per scan, newest first
+/* Team names and colours for matches with no followed team, held in RAM
+   because core 0 cannot read the flash catalogue. ~40 bytes each. */
+#define ESPN_IDENT_MAX     48
+#define NUM_SPORTS_MAX     8            // compile-time bound on SPORTS[]
+/* ESPN's edge blocks by User-Agent, and it is NOT a simple bot filter —
+   measured 2026-08-15, stable over repeated rounds:
+       ESP32HTTPClient    200      curl/8.5.0          200
+       python-requests    200      Mozilla/5.0         403
+       Wget/1.21          403      DigiFrame/1.0       403
+   So a browser-shaped string is rejected while an honest tool string is
+   accepted. "ESP32HTTPClient" is Arduino HTTPClient's own default, which
+   both works and truthfully identifies the client — do not "improve" this
+   into a product name or a fake browser UA; both are 403. */
+#define ESPN_USER_AGENT    "ESP32HTTPClient"
+
+/* ---- development endpoints ----
+   POST /api/dev (drive the panel into a given visual state) and the panel
+   screenshot shadow behind GET /api/frame. Used by dev/panelshot.py to
+   develop and review the on-panel UI without a camera. Set to 0 to compile
+   both out; the capture shadow costs nothing until armed either way. */
+#define DEV_ENDPOINTS 1
+
 /**********************  2. PIN MAP  **********************************/
 /* HUB75 (adjust freely if your wiring differs — every GPIO works,
    just avoid 0, 19/20 (USB), 26-32 (flash), 33-37 (PSRAM on N16R8),
@@ -98,3 +169,21 @@
    was removed. If DRAM gets tight again, drop to 6 — and change build_opt.h
    in the same commit. */
 #define PANEL_COLOR_DEPTH 8
+
+/* HUB75 pixel clock and the scan rate it buys.
+
+   The library does NOT display all PANEL_COLOR_DEPTH bitplanes at full
+   weight if that would scan too slowly: at begin() it raises an internal
+   `lsbMsbTransitionBit` until the computed scan rate reaches
+   PANEL_MIN_REFRESH, trading perceived colour depth for refresh. At the
+   library default of 8 MHz, depth 8 on a 64x64 needs a large transition
+   bit — so the panel was giving up colour gradation *and* still scanning
+   near the 60 Hz floor, which is what low-brightness shimmer looks like.
+
+   16 MHz doubles the budget: a lower transition bit (better mid-tones) at
+   a higher scan rate. Both are reported at boot as "panel: N Hz" — check
+   it after changing either knob. If you see ghosting, smearing or wrong
+   columns, the ribbon cable can't take 16 MHz: drop back to HZ_8M (and
+   raising `latch_blanking` in DigiFrame.ino helps ghosting specifically). */
+#define PANEL_I2S_HZ       HUB75_I2S_CFG::HZ_16M
+#define PANEL_MIN_REFRESH  100   // Hz floor the library must reach

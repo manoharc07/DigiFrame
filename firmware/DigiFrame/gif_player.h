@@ -90,6 +90,33 @@ void blitGifCanvas() {
   }
 }
 
+/* Decode + composite the next GIF frame, but only once its own inter-frame
+ * delay has elapsed. Deliberately non-blocking: playFrame(bSync=true)
+ * delay()s *inside* the decoder for the remainder of the frame interval
+ * (typically 60-100 ms), and on core 1 that stalls the dashboard, the
+ * once-a-second clock tick, the captive-portal DNS and the cross-core
+ * command queue for the whole time. Pacing on our own deadline instead
+ * costs nothing and keeps loop() responsive between frames.
+ *
+ * Returns true if a new frame was composited (the caller then flips).
+ * If pRes is given it receives playFrame()'s return value: 0 means that
+ * was the last frame, so the caller can loop or close. */
+bool playGifFrameIfDue(int *pRes = nullptr) {
+  if (!gifOpen) return false;
+  uint32_t ms = millis();
+  if ((int32_t)(ms - gifNextFrameAt) < 0) return false;
+
+  int delayMs = 0;
+  int res = gif.playFrame(false, &delayMs);
+  if (pRes) *pRes = res;
+  blitGifCanvas();
+  // Plenty of GIFs declare a 0 ms delay; without a floor we would blit the
+  // full 64x64 canvas as fast as the CPU allows and starve everything else.
+  if (delayMs < GIF_MIN_FRAME_MS) delayMs = GIF_MIN_FRAME_MS;
+  gifNextFrameAt = ms + (uint32_t)delayMs;
+  return true;
+}
+
 bool openGif(const String &path, bool userPlay = false) {
   if (gifOpen) { gif.close(); gifOpen = false; }
   if (!LittleFS.exists(path)) return false;
@@ -133,9 +160,15 @@ bool openGif(const String &path, bool userPlay = false) {
             (gifNeedsScale ? " -> scaled, " : " -> centered, ") +
             "off=" + String(gifOffX) + "," + String(gifOffY));
 
-    // Clear both buffers so stale content doesn't bleed through transparent pixels
-    dma->fillScreen(0); dma->flipDMABuffer();
-    dma->fillScreen(0); dma->flipDMABuffer();
+    // Clear both buffers so stale content doesn't bleed through transparent
+    // pixels. On the S3 flipDMABuffer() only re-points the descriptor chain
+    // and returns immediately — the DMA keeps scanning the buffer we just
+    // handed away until it reaches the end of the current pass — so give it
+    // a scan period before overwriting the other one.
+    dma->fillScreen(0); panelPresent();
+    delay(panelScanPeriodMs());
+    dma->fillScreen(0); panelPresent();
+    gifNextFrameAt = millis();      // first frame plays immediately
     return true;
   }
   // open failed — surface the decoder's reason (e.g. GIF_TOO_WIDE for
