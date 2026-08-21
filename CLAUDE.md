@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-DigiFrame is a source-available (noncommercial — PolyForm Noncommercial 1.0.0, see `LICENSE.md`) Arduino/ESP32-S3 firmware that drives a 64x64 HUB75 LED matrix as a **smart clock**: NTP clock, Open-Meteo weather, a neutral living ambient scene, GIF playback from LittleFS, scrolling messages, typed **special days** (date + type + message → themed celebration; merges the old "party mode"), a **live sports-score widget** (favourite teams auto-switch the lower two-thirds of the clock face into a score card, with per-sport layouts and event animations), a Telegram bot, a local web dashboard, optional **Home Assistant integration over MQTT**, and a WiFi setup hotspot with an on-panel QR code. Being repositioned from a personal "gift frame" — keep it generic, no personal/gift references.
+DigiFrame is a source-available (noncommercial — PolyForm Noncommercial 1.0.0, see `LICENSE.md`) Arduino/ESP32-S3 firmware that drives a 64x64 HUB75 LED matrix as a **smart clock**: NTP clock, Open-Meteo weather, a neutral living ambient scene, GIF playback from LittleFS, scrolling messages, typed **special days** (date + type + message → themed celebration; merges the old "party mode"), a **live sports-score widget** (favourite teams auto-switch the lower two-thirds of the clock face into a score card, with per-sport layouts and event animations), a Telegram bot, a local web dashboard with **one-click firmware updates from GitHub releases**, optional **Home Assistant integration over MQTT**, and a WiFi setup hotspot with an on-panel QR code. Being repositioned from a personal "gift frame" — keep it generic, no personal/gift references.
 
 ## Repository layout
 
@@ -46,7 +46,7 @@ Single translation unit: `DigiFrame.ino` includes ordered `.h` files (order matt
 ```
 config → globals → gif_player → events_store → sports_core → weather → scene
        → score_gfx → score_fx → sports_registry → score_widget
-       → scroll → party → control → telegram → web_portal → mqtt_ha → qr_display → wifi_manager
+       → scroll → party → updater → control → telegram → web_portal → mqtt_ha → qr_display → wifi_manager
 ```
 
 Preserve this order when adding a new header — e.g. anything using the DMA panel or `logLine` must come after `globals.h`; anything driving `MODE_SETUP` must come after `qr_display.h`.
@@ -66,13 +66,14 @@ Preserve this order when adding a new header — e.g. anything using the DMA pan
 | `espn_api.h` | **live scores, the ESPN provider** behind `sportSrc="http"`: the buffered + chunk-decoding stream, the three poll cadences, discovery, and the cricket score-string parser. Runs on core 0; posts `TGC_ESPN_CAT` so core 1 does the LittleFS write |
 | `sports_registry.h` | the one table binding the sport modules — see "Adding a sport" below |
 | `score_widget.h` | `drawScoreWidget()`, the dispatcher `renderClock()` calls: chrome → the sport's `drawBody` → at most one event animation (the sport's own if it has one, else `score_fx.h`) |
+| `updater.h` | the **OTA install path**, shared by the manual `.bin` upload and the one-click update: the progress screen, the `netQuiesce` handshake, the app-image magic check, `panelTeardown()`, and `updateInstall()` which pulls a release asset from GitHub. The version *check* is not here — it runs in the browser (see "Auto-update" below) |
 | `weather.h` | Open-Meteo fetch + weather icons |
 | `scene.h` | clock face + ambient scene (sprites, `renderClock`) — the big one |
 | `scroll.h` | scrolling text renderer |
 | `party.h` | **celebration** (special-day) mode + `/test` mode: `startCelebration(type,message)`/`runCelebration()`; visual by type (`birthday`→cake+confetti, `custom`→fireworks) then a scrolling message banner |
 | `control.h` | **shared control layer**: one `ctl*` function per action (msg, brightness, play/del/upload GIF, interval, celebrate/stop, wifi, loc, tg, tgtest, add/del/list special days, MQTT config, status/list/logs JSON). HTTP handlers, Telegram and MQTT all call these — they run on core 1. |
 | `telegram.h` | bot commands, reply keyboard, inline keyboards, callback queries |
-| `web_portal.h` | dashboard HTML + `/api/*` handlers (thin wrappers over `control.h`) + OTA + captive-portal redirect (endpoints: `GET /`, `GET /api/logs`, `GET /api/list`, `GET /api/config`, `POST /api/msg`, `/api/brightness`, `/api/play`, `/api/del`, `/api/interval`, `/api/celebrate`, `/api/stop`, `/api/events`, `/api/eventdel`, `/api/upload`, `/api/tgtest`, `/api/wifi`, `/api/tgconfig`, `/api/loc`, `/api/mqtt`, `/api/ota`, and for live scores `GET /api/catalogue`, `GET|POST /api/teams`, `/api/teamdel`, `/api/espnfollow`, `/api/espnteams`, `/api/espnrefresh`, `/api/leaguefollow`, `/api/sportsel`, `/api/pin`, `/api/unpin`, `/api/sports`, `/api/scorepreview`, `/api/scoreevent`). The team picker runs **in the browser** — see "Picking teams" below |
+| `web_portal.h` | dashboard HTML + `/api/*` handlers (thin wrappers over `control.h`) + OTA + captive-portal redirect (endpoints: `GET /`, `GET /api/logs`, `GET /api/list`, `GET /api/config`, `POST /api/msg`, `/api/brightness`, `/api/play`, `/api/del`, `/api/interval`, `/api/celebrate`, `/api/stop`, `/api/events`, `/api/eventdel`, `/api/upload`, `/api/tgtest`, `/api/wifi`, `/api/tgconfig`, `/api/loc`, `/api/mqtt`, `/api/ota`, `/api/update`, and for live scores `GET /api/catalogue`, `GET|POST /api/teams`, `/api/teamdel`, `/api/espnfollow`, `/api/espnteams`, `/api/espnrefresh`, `/api/leaguefollow`, `/api/sportsel`, `/api/pin`, `/api/unpin`, `/api/sports`, `/api/scorepreview`, `/api/scoreevent`). The team picker runs **in the browser** — see "Picking teams" below |
 | `mqtt_ha.h` | optional **Home Assistant integration over MQTT** (`PubSubClient`, `mqttTask` on core 0): MQTT discovery for brightness/message/celebrate/stop + temperature/mode sensors; commands `postTgCmd()` to core 1. Off unless enabled + a broker host is set. |
 | `qr_display.h` | `renderSetupQR()` — QR on the panel in `MODE_SETUP` (encodes `CLOUD_SITE_URL/#d=<bleName>`) |
 | `wifi_manager.h` | `wifiConnect`, `startPortal`/`stopPortal`, `wifiManagerTick` |
@@ -84,7 +85,72 @@ Everything runs on a dual-core FreeRTOS setup. The critical structural fact is t
 - **Cross-core handoff:** `tgTask` and **`mqttTask`** (both core 0) parse input and call `postTgCmd(...)` (single `TgRequest` slot guarded by `tgReqMutex`); `loop()` drains it and calls the `control.h` `ctl*` functions on core 1 (`openGif`/mode/LittleFS/`saveConfig`). New actions from either task must follow this pattern — never touch LittleFS/DMA from core 0. `TgRequest` carries a second string (wifi pass / lon / chat) and a PSRAM `buf` for GIF uploads (freed by core 1 after `TGC_GIF_COMMIT`).
 - **One implementation per action:** the HTTP dashboard (`web_portal.h`, core 1) calls `ctl*` directly; Telegram and MQTT (core 0) marshal to them via the queue. Every front-end therefore behaves identically — add new config actions in `control.h`, then wire a thin handler per front-end.
 - **Web → WiFi handoff:** `/api/wifi` → `ctlSetWifi` sets `wifiRetryNow`; `wifiManagerTick()` (core 1) performs the actual reconnect.
-- **OTA** (`/api/ota` in `web_portal.h`): flashes an uploaded app image (`DigiFrame.ino.bin`) into the spare OTA slot via `Update.h` (the custom partition table has `app0`/`app1`, now 4 MB each), then reboots. It suspends the core-0 tasks (Telegram, weather, MQTT, sports) for the duration and rejects non-app images (checks the `esp_app_desc_t` magic `0xABCD5432` at offset 0x20 of the first chunk). Like the rest of the dashboard it is unauthenticated LAN-only. After an OTA the device may boot from `app1` — a serial app-only flash at 0x10000 then needs otadata cleared (flash the `_0x0` image, or `esptool erase-region 0xe000 0x2000`).
+- **OTA** (`updater.h`): flashes an app image (`DigiFrame.ino.bin`) into the spare OTA slot via `Update.h` (the custom partition table has `app0`/`app1`, now 4 MB each), then reboots. Two front doors end in the same quiesce → validate → write: `/api/ota` (a `.bin` the user picked, streamed in by the browser) and `/api/update` (a release URL the dashboard found, downloaded by the frame). Both suspend the core-0 tasks for the duration and reject non-app images by checking the `esp_app_desc_t` magic `0xABCD5432` at offset 0x20 of the first chunk. Like the rest of the dashboard they are unauthenticated LAN-only. After an OTA the device may boot from `app1` — a serial app-only flash at 0x10000 then needs otadata cleared (flash the `_0x0` image, or `esptool erase-region 0xe000 0x2000`).
+
+### Auto-update: the check is in the browser, the download is not
+
+Same browser/frame split as the pickers, forced by one missing header. Both
+halves are pinned by `tests/test_update.py`.
+
+- **`api.github.com` sends `Access-Control-Allow-Origin: *`**, so the dashboard
+  runs the check itself on load: fetch `/releases/latest`, compare `tag_name`
+  against the `fw` field of `/api/config`, show a banner. That reply is 6.6 KB
+  of JSON — nothing in a browser, and only worth knowing while somebody is
+  looking at the page. On the device it would have cost a TLS session, a
+  filtered JSON parse and a periodic timer for the same answer. **There is no
+  version check in the firmware at all**, and adding one is a regression, not
+  a feature.
+- **The release asset does not.** `github.com` 302s it to
+  `release-assets.githubusercontent.com`, whose response carries no CORS
+  header, so `fetch()` can never read those 1.6 MB to hand them to `/api/ota`.
+  That is the entire reason `updateInstall()` exists and pays for a TLS
+  session. The asset is https-only too (the redirect's SAS signature carries
+  `spr=https`), so unlike the ESPN provider it cannot be done in the clear.
+- **The page sends a URL; the frame decides whether to trust it.**
+  `updUrlAllowed()` accepts only
+  `https://github.com/<UPDATE_REPO>/releases/download/…`, so an
+  unauthenticated LAN endpoint cannot be turned into "fetch and run arbitrary
+  bytes from anywhere". The app-image magic catches the rest.
+- **The dashboard picks the app-only asset by `UPDATE_ASSET_SUFFIX`.** The
+  other release binary is the merged full-flash image, which starts with the
+  bootloader — it fails the magic check, and would wipe LittleFS if it didn't.
+- **`/api/update` answers before it installs.** `updateInstall()` runs on core
+  1 from `loop()`, which is also what services the socket; doing it inside the
+  handler means the browser reports a timeout on an update that is working
+  fine. The handler queues `updInstallNow` and returns; the panel is the
+  progress bar, and the page polls `/api/config` until the frame comes back
+  with a different `fw`.
+- **The download deletes the panel, and that is not optional.** Measured on
+  the device: with the framebuffer up there is ~32 KB of internal DRAM free
+  and the largest contiguous block is **11 KB**. mbedTLS wants a 16 KB input
+  *and* a 16 KB output buffer, so the handshake fails with `SSL - Memory
+  allocation failed` however the rest of the firmware is arranged. Quiescing
+  the other network tasks recovers **2 KB** — the Telegram bot connects and
+  closes per poll, so between polls there is nothing to free. The occupant is
+  the 64 KB double-buffered framebuffer (`MALLOC_CAP_INTERNAL|MALLOC_CAP_DMA`,
+  because the DMA engine cannot read PSRAM), and `panelTeardown()` gives it
+  back. This is the same wall that keeps the ESPN provider on plain HTTP.
+- **After the teardown every exit is a reboot.** `stopDMAoutput()` is
+  documented as black-until-reboot, so a failed download cannot put the panel
+  back and calls `ESP.restart()` instead. The panel is therefore dark for the
+  ~25 s download with no progress indicator, and the log ring — which is RAM —
+  does not survive: the failure reason goes to `/update_err.txt` first and
+  `loadUpdateErr()` reports it once at the next boot. The **upload** path keeps
+  the panel and its KB progress bar, because it needs no TLS.
+- **`netQuiesce` is a handshake, not a `stop()` call.** Each network task drops
+  its session at the top of its own loop and sets its idle flag; the installer
+  waits for the acks before suspending. Freeing another task's TLS context
+  from core 1 would be a use-after-free the moment it resumed. It buys little
+  memory, but a task suspended mid-handshake was a real hazard. Allow it a
+  generous timeout — weatherTask ticks every 5 s, and a short wait silently
+  suspends a task that has not parked, which is what made the first
+  measurement of this look conclusive when it was not.
+- **The version is stamped from the git tag** by `.github/workflows/release.yml`
+  before it compiles. `FW_VERSION` in `config.h` is only what a local build
+  calls itself — a hand-maintained one would eventually be forgotten, and a
+  build reporting a stale version either hides a real update or offers one it
+  already has.
+
 - **Logging:** `logLine()` → mutex-guarded ring buffer (`logBuf`, 40 lines) shown on the dashboard, mirrored to Serial.
 
 ### WiFi / setup-portal flow
