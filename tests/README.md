@@ -72,6 +72,18 @@ separates "ESPN changed" from "we broke it":
   the check that soccer's equivalent is still an empty stub (which is why only
   NFL pays for the call).
 
+- **cricket ball-by-ball paging and sentinel** — `limit` pages from the start of
+  the innings, and every page carries a padding entry whose valid-looking
+  playType would freeze the pill strip forever.
+- **cricket ball ids reset at the innings break** — ids are monotonic
+  only WITHIN an innings; a second innings restarts near zero, which is why
+  the strip is rebuilt from the tail page instead of appended to by id.
+- **cricket ball page is expensive enough to count** — a six-ball page is
+  ~16 KB, which is why the reach-back to the previous page is conditional.
+- **cricket overs need linescores after the first innings** — from then on
+  both sides carry a `(… ov)`, so only `isBatting` on the `isCurrent`
+  innings says whose overs the card should print.
+- **match-state words are prose** — why the suspension keywords fold case.
 
 ### `update` — one missing header holds the whole design up
 

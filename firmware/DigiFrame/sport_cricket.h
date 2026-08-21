@@ -55,9 +55,12 @@ static int cricketRuns(char c) { return (c == '.' || c == 'W') ? 0 : (c - '0'); 
 /* One innings row: "IND 91/2", "BAN 426" when all out, "AUS  yet" before
    they bat. Shared by both rows so the two never drift apart. */
 static void cricketScoreLine(char *out, size_t n, const Side &sd) {
-  if (sd.score2 < 0)        snprintf(out, n, "%-3s  yet", sd.abbr);
-  else if (sd.score2 >= 10) snprintf(out, n, "%-3s %d",   sd.abbr, sd.score);
-  else                      snprintf(out, n, "%-3s %d/%d", sd.abbr, sd.score, sd.score2);
+  /* "%-3.3s" pads AND truncates: the precision is what keeps the line inside
+     the card if Side.abbr is ever widened again. Longest possible line is
+     "IND 288/9" — nine characters, 54px from x=5, clear of the right bar. */
+  if (sd.score2 < 0)        snprintf(out, n, "%-3.3s  yet", sd.abbr);
+  else if (sd.score2 >= 10) snprintf(out, n, "%-3.3s %d",   sd.abbr, sd.score);
+  else                      snprintf(out, n, "%-3.3s %d/%d", sd.abbr, sd.score, sd.score2);
 }
 
 static void cricketBody(const LiveMatch &m, uint32_t f) {

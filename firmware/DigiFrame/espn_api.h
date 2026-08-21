@@ -54,6 +54,16 @@ struct EspnWatch {
   uint32_t checkedAt;       // millis of the last discovery for this team
   uint8_t  lastState;       // MatchState from the last successful live fetch
   bool     valid;
+  /* cricket only: the rolling last-six-deliveries strip. Held here rather than
+     in LiveMatch because the provider rebuilds LiveMatch from scratch on every
+     poll, while the strip has to survive between the slower ball fetches. */
+  char     strip[8];
+  uint16_t ballPage;        // cached pageCount, self-correcting
+  uint32_t ballsAt;         // millis of the last ball fetch
+  /* The score the strip was last fetched against — runs/wickets/overs of both
+     sides, exactly what the card prints. The strip refreshes when this moves,
+     not on a timer of its own; see espnCricketStrip(). */
+  char     ballSig[24];
 };
 static EspnWatch espnWatch[MAX_FAV_TEAMS];
 
@@ -240,16 +250,39 @@ static uint8_t espnState(const char *state, const char *detail, const char *desc
   if (!strcmp(state, "post")) return MS_ENDED;
   if (!strcmp(state, "pre"))  return MS_UPCOMING;
 
+  /* Case-INSENSITIVE, because ESPN writes these as prose as often as labels:
+     the live example that caught this was "Match delayed by a wet outfield",
+     where a case-sensitive search for "Delay" misses and a stopped match reads
+     as in progress. strcasestr is not portable here, so fold by hand. */
+  /* Whole words only. A bare substring test is far too loose on free text:
+     "tea" matches "Team" and "Steal", "rain" matches "Bahrain" — each of which
+     would park the card on the clock mid-play. Require a non-alphanumeric
+     boundary on both sides, which still matches "Match delayed - Rain" and
+     multi-word needles like "bad light". */
+  auto isWord = [](char c) { return isalnum((unsigned char)c) != 0; };
+  auto has = [&](const char *hay, const char *needle) {
+    if (!hay || !needle) return false;
+    for (const char *p = hay; *p; p++) {
+      const char *h = p, *n = needle;
+      while (*n && *h && tolower((unsigned char)*h) == tolower((unsigned char)*n)) { h++; n++; }
+      if (*n) continue;                                   // no match here
+      if (p != hay && isWord(p[-1])) continue;            // "Bahrain" vs "rain"
+      if (*h && isWord(*h))          continue;            // "Team"    vs "tea"
+      return true;
+    }
+    return false;
+  };
   auto says = [&](const char *needle) {
-    return (detail && strstr(detail, needle)) || (desc && strstr(desc, needle));
+    return has(detail, needle) || has(desc, needle);
   };
   /* Play has stopped for the day or indefinitely: release the panel. */
-  if (says("Stumps") || says("Bad Light") || says("Rain") ||
-      says("Suspend") || says("Delay"))
+  if (says("stumps") || says("bad light") || says("rain") ||
+      says("suspend") || says("delay") || says("abandon") ||
+      says("wet outfield"))
     return MS_SUSPENDED;
   /* A pause you sit through with the score still up. */
-  if (says("Half") || says("End of") || says("Interm") ||
-      says("Lunch") || says("Tea") || says("Drinks") || says("Innings"))
+  if (says("half") || says("end of") || says("interm") ||
+      says("lunch") || says("tea") || says("drinks") || says("innings"))
     return MS_BREAK;
   return MS_LIVE;
 }
@@ -273,9 +306,11 @@ static void espnCricketScore(const char *s, int16_t &runs, int16_t &wkts, char *
      bare runs ("426"). Reporting SCORE2_NONE there made cricketBody print
      "yet" (not batted) for a side that had actually scored 426. */
 
-  /* Overs are only written when this side's score carries them, and never
-     cleared: the sides are parsed into the same buffer, so a fielding side
-     with no "(53 ov)" would otherwise wipe the batting side's overs. */
+  /* Overs are only written when this side's score carries them, so a side
+     with no "(53 ov)" leaves the buffer as the caller set it. The caller now
+     passes a per-side buffer and picks the batting side's from linescores —
+     sharing one buffer here is what captioned a chase with the first innings'
+     over count. */
   if (paren && overs && oversLen) {
     int i = 0;
     for (const char *q = paren + 1; *q && *q != ' ' && *q != ')' && i < (int)oversLen - 1; q++)
@@ -436,6 +471,11 @@ static bool espnLiveW(const EspnWatch &w, uint8_t sport, LiveMatch &m) {
     cc["homeAway"] = true; cc["score"] = true; cc["winner"] = true;
     cc["team"]["id"] = true; cc["team"]["abbreviation"] = true;
     cc["team"]["displayName"] = true; cc["team"]["color"] = true;
+    /* Who is actually at the crease. Two fields, and both are needed: the
+       CURRENT innings is the linescore with isCurrent, and within it exactly
+       one side has isBatting. See the loop below for why guessing is wrong. */
+    JsonObject ls = cc["linescores"][0].to<JsonObject>();
+    ls["isCurrent"] = true; ls["isBatting"] = true;
     JsonDocument doc;
     if (!espnGet(url, doc, filter)) return false;
 
@@ -446,16 +486,58 @@ static bool espnLiveW(const EspnWatch &w, uint8_t sport, LiveMatch &m) {
       m.state = espnState(e["status"]["type"]["state"] | "",
                           e["status"]["type"]["detail"] | "",
                           e["status"]["type"]["description"] | "");
-      char overs[8] = "";      // filled by whichever side is batting
+      /* The overs on the card belong to the side AT THE CREASE, and after the
+         first innings that is not something the score strings can tell you.
+         Both sides carry a "(… ov)" from then on — a completed innings keeps
+         its own, measured live: "VKK 171/3 (16/16 ov)" alongside "DD 88/7
+         (11/16 ov)". The old code parsed both into one shared buffer, so the
+         card showed whichever competitor the array happened to list last, and
+         a chase at 11 overs was captioned 16. The array is ordered by home/away,
+         not by who is batting, so it went wrong for roughly half of all matches
+         and only ever after the first innings — which is exactly how it read.
+
+         Nor can it be derived. "The side whose score has parentheses" is what
+         broke. "order == status.period" holds for limited-overs but not for a
+         Test after a follow-on, where the same side bats two innings running.
+         linescores answers it outright and holds on both: measured at ENG v PAK
+         period 3, PAK (order 1) batting again with isBatting on its isCurrent
+         innings alone. */
+      char overs[8] = "";      // the batting side's
+      char anyOvers[8] = "";   // fallback: a feed with no linescores at all
+      bool haveBatting = false;
       for (JsonObject c : e["competitions"][0]["competitors"].as<JsonArray>()) {
         Side &sd = (!strcmp(c["homeAway"] | "", "home")) ? m.home : m.away;
         strlcpy(sd.id,   c["team"]["id"] | "", sizeof(sd.id));
         strlcpy(sd.abbr, c["team"]["abbreviation"] | "?", sizeof(sd.abbr));
         strlcpy(sd.name, c["team"]["displayName"] | "", sizeof(sd.name));
         sd.color = teamInk(espnColor(c["team"]["color"] | "", mod->accent));
-        espnCricketScore(c["score"] | "", sd.score, sd.score2, overs, sizeof(overs));
-        sd.active = (c["score"] | "") && strchr(c["score"] | "", '(') != nullptr;
+
+        char so[8] = "";       // per side now, so neither can clobber the other
+        espnCricketScore(c["score"] | "", sd.score, sd.score2, so, sizeof(so));
+
+        bool batting = false, known = false;
+        for (JsonObject l : c["linescores"].as<JsonArray>()) {
+          if (!(l["isCurrent"] | 0)) continue;
+          batting = l["isBatting"] | false;
+          known   = true;
+          break;
+        }
+        /* active drives the team bar's breathe, and had the same fault: from
+           the second innings on, both sides' scores carry parentheses, so both
+           bars breathed and the marker stopped meaning anything. */
+        sd.active = known ? batting : (so[0] != 0);
+
+        if (so[0]) {
+          strlcpy(anyOvers, so, sizeof(anyOvers));
+          if (known && batting) {
+            strlcpy(overs, so, sizeof(overs));
+            haveBatting = true;
+          }
+        }
       }
+      /* Between innings nobody is batting; the last innings played is the
+         truthful thing to caption, which is what the fallback holds. */
+      if (!haveBatting) strlcpy(overs, anyOvers, sizeof(overs));
       strlcpy(m.period, overs, sizeof(m.period));
       m.detail[0] = 0;                       // no broadcast furniture on the card
       return true;
@@ -538,7 +620,7 @@ static bool espnLive(int favIdx, LiveMatch &m) {
    espnFetchCatalogue() already performs — that function builds its result in
    core-0 RAM before handing the JSON to core 1 to write, so there is no new
    network cost and no new parser, just a second consumer of the same pass. */
-struct EspnIdent { char id[10]; char abbr[5]; char name[20]; uint16_t color; uint8_t sport; };
+struct EspnIdent { char id[10]; char abbr[4]; char name[20]; uint16_t color; uint8_t sport; };
 static EspnIdent espnIdent[ESPN_IDENT_MAX];
 static uint8_t   espnIdentN = 0;
 static uint32_t  espnIdentAt[NUM_SPORTS_MAX] = {0};   // millis of last fill
@@ -785,6 +867,155 @@ static bool espnScanLeague(int favIdx) {
   return true;
 }
 
+/* ---- cricket: the last six deliveries -------------------------------
+   The card's pill strip was drawn by the renderer but written only by the demo
+   simulator, so on a real match it was blank. This fills it.
+
+   The source is playbyplay, and its paging is the whole difficulty: `limit`
+   windows from the START of the innings, so limit=6 returns the first over of
+   the day, not the last. The response does carry `pageCount`, and page=N with
+   a small limit works — but the final page is usually PARTIAL (an innings of
+   1819 balls leaves one ball on page 304), so no single request returns "the
+   last six".
+
+   Hence rebuilding from the tail page. Note what does NOT work: appending
+   "any ball newer than the last id seen". Commentary ids restart at the
+   INNINGS, not the match — a first innings measured 110 ... 115060 and the
+   second opened at 210 — so a high-water mark carried across the break sits
+   far above every id of the new innings and the strip freezes on the old one
+   while the score above it counts the new one. Ids are monotonic only within
+   an innings (test_cricket_ball_ids_reset_at_the_innings_break).
+
+   The strip lives in the watch, so it survives both the score polls in between
+   and a page rolling over to a fresh over.
+
+   pageCount is cached and self-correcting: ask for the page we believed was
+   last, and the reply tells us what last really is now. An over-range page
+   still returns the metadata, so a stale guess costs accuracy for one cycle,
+   never an error. */
+static char espnBallChar(const char *playTypeId, const char *shortText) {
+  /* playType ids, confirmed against live Tests and a T20:
+       1 run  2 no run  3 four  4 six  5 no ball  6 wide  7 bye  8 leg bye
+       9 out                                                                */
+  if (!playTypeId) return 0;
+  if (!strcmp(playTypeId, "2")) return '.';
+  if (!strcmp(playTypeId, "9")) return 'W';
+  if (!strcmp(playTypeId, "3")) return '4';
+  if (!strcmp(playTypeId, "4")) return '6';
+  /* runs and extras carry their count only in the prose ("…, 1 leg bye"), so
+     take the first digit after the last comma; a run with no number is one. */
+  if (shortText && *shortText) {
+    const char *p = strrchr(shortText, ',');
+    if (p) for (const char *q = p; *q; q++)
+      if (*q >= '1' && *q <= '9') return *q;
+  }
+  return '1';
+}
+
+static bool espnCricketBalls(EspnWatch &w) {
+  JsonDocument filter;
+  JsonObject c = filter["commentary"].to<JsonObject>();
+  c["pageCount"] = true;
+  JsonObject it = c["items"][0].to<JsonObject>();
+  it["id"] = true; it["shortText"] = true; it["playType"]["id"] = true;
+
+  auto fetch = [&](uint16_t page, JsonDocument &doc) {
+    String url = String("http://site.api.espn.com/apis/site/v2/sports/cricket/")
+               + w.league + "/playbyplay?event=" + w.eventId
+               + "&limit=6&page=" + String(page);
+    return espnGet(url, doc, filter);
+  };
+  /* Append a page's real deliveries. Every page is padded with a sentinel —
+     id 999999999999999, empty text, but a perfectly valid-looking playType of
+     "2"/no run — so filter on both empty text and id magnitude (real ids are
+     over*100 + ball*10, six or seven digits). */
+  auto collect = [&](JsonDocument &doc, char *buf, uint8_t &n, uint8_t cap) {
+    for (JsonObject b : doc["commentary"]["items"].as<JsonArray>()) {
+      const char *st = b["shortText"] | "";
+      if (!*st) continue;
+      long id = atol(b["id"] | "0");
+      if (id <= 0 || id > 99999999L) continue;
+      if (n < cap) buf[n++] = espnBallChar(b["playType"]["id"] | (const char *)nullptr, st);
+    }
+  };
+
+  /* Rebuild from the last two pages rather than accumulating ball by ball.
+     Accumulating looked cheaper — one request, append anything newer than the
+     last id seen — but it loses deliveries every time the page rolls over: the
+     tail of the page being left behind is never read again, and the strip then
+     carries a hole for good. Rebuilding is self-healing instead: it is correct
+     after a reboot, after a missed fetch, and after any page roll, at the cost
+     of one extra request a minute. The last two pages always contain at least
+     six deliveries because a page is six. */
+  uint16_t page = w.ballPage ? w.ballPage : 1;
+  JsonDocument cur;
+  if (!fetch(page, cur)) return false;
+  uint16_t pages = (uint16_t)(cur["commentary"]["pageCount"] | 1);
+  if (pages && pages != page) {                 // first run, or the page rolled
+    page = pages;
+    if (!fetch(page, cur)) return false;
+  }
+  w.ballPage = page;
+
+  /* Collect the tail page first. Only reach back a page when it cannot answer
+     on its own: a page is six deliveries, so a FULL tail page already is the
+     last six and the second request would be pure waste — and these pages are
+     not cheap (16.5 KB each, measured, because every item carries both squads'
+     bowling figures). The tail page is usually partial, but skipping the reach
+     -back whenever it is full is what keeps a per-ball refresh affordable. */
+  char buf[20];
+  uint8_t n = 0, tail = 0;
+  collect(cur, buf, tail, sizeof(buf));
+  if (tail >= 6) {
+    n = tail;
+  } else if (page > 1) {
+    JsonDocument prev;
+    if (fetch(page - 1, prev)) collect(prev, buf, n, sizeof(buf));
+    collect(cur, buf, n, sizeof(buf));
+  } else {
+    n = tail;
+  }
+  if (!n) return true;                          // nothing bowled yet
+
+  uint8_t keep = n > 6 ? 6 : n;                 // the last six, in order
+  memcpy(w.strip, buf + (n - keep), keep);
+  w.strip[keep] = 0;
+  return true;
+}
+
+/* The strip refreshes when the SCORE moves, not on a clock of its own.
+
+   It used to be a flat 60 s timer while the score ticked every 20 s, so for up
+   to two polls the card showed a wicket in "64/3" with no W anywhere in the
+   pills under it — the two halves of the same card disagreeing about what had
+   just happened, which is the one thing a six-ball strip exists to prevent.
+   Keying off the score is exact rather than merely faster: the pills are
+   refetched on precisely the polls where the thing they illustrate changed.
+
+   The signature is what the card itself prints — both sides' runs and wickets
+   plus the overs — so "the score changed" and "the strip is stale" are by
+   construction the same question. ESPN_BALLS_MS survives as the IDLE refresh,
+   covering the deliveries that move no number at all (dots and a maiden over),
+   and as the first fetch of a match whose score has not moved since we
+   attached to it. */
+static void espnCricketStrip(EspnWatch &w, LiveMatch &m) {
+  if (m.state == MS_LIVE) {
+    char sig[24];
+    snprintf(sig, sizeof(sig), "%d/%d %d/%d %s",
+             m.home.score, m.home.score2, m.away.score, m.away.score2, m.period);
+    bool moved = strcmp(sig, w.ballSig) != 0;
+    bool idle  = !w.ballsAt || millis() - w.ballsAt > ESPN_BALLS_MS;
+    if (moved || idle) {
+      w.ballsAt = millis() | 1;
+      strlcpy(w.ballSig, sig, sizeof(w.ballSig));
+      espnCricketBalls(w);
+    }
+  }
+  /* Copied on EVERY poll, not just the ones that fetched: LiveMatch is rebuilt
+     from scratch each time, so the strip would otherwise blink in and out. */
+  strlcpy(m.strip, w.strip, sizeof(m.strip));
+}
+
 /* ---- a match the user pinned from the dashboard ----------------------
    The browser reads the event id, league and both team ids straight off
    ESPN's scoreboard (a competitor id IS the team id — verified on soccer and
@@ -885,6 +1116,14 @@ bool espnPoll(LiveMatch *out, int maxN, int &n) {
       if (espnPinSport < NUM_SPORTS_MAX && espnIdentAt[espnPinSport] == 0)
         espnCatWanted = espnPinSport;
       m.home.fav = m.away.fav = true;      // pinned counts as eligible
+      /* A pinned cricket match needs its strip too. This branch had none, so
+         pinning one from the dashboard gave a card whose score ticked over an
+         empty row of pills for the whole match — the same disagreement the
+         followed-team path had, in its most complete form. espnPin is a static
+         watch, so it carries the page and signature exactly as espnWatch[] does. */
+      if (espnPinSport < NUM_SPORTS_MAX &&
+          !strcmp(sportOf(espnPinSport)->espnSport, "cricket"))
+        espnCricketStrip(espnPin, m);
       m.startedAt = m.changedAt = millis();
       out[n++] = m;
       any = true;
@@ -967,6 +1206,10 @@ bool espnPoll(LiveMatch *out, int maxN, int &n) {
       if (!m.home.fav && !m.away.fav)
         (w.homeIsFav ? m.home : m.away).fav = true;   // it is why we polled
     }
+    /* Cricket's pill strip, kept in step with the score above it. */
+    if (!strcmp(sportOf(favTeams[i].sport)->espnSport, "cricket"))
+      espnCricketStrip(w, m);
+
     m.startedAt = millis();
     m.changedAt = millis();
 

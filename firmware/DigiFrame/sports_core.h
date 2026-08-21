@@ -39,7 +39,14 @@ enum MatchState : uint8_t { MS_UPCOMING, MS_LIVE, MS_BREAK, MS_ENDED, MS_SUSPEND
 
 struct Side {
   char     id[12];     // provider/catalogue id, used to match favourites
-  char     abbr[5];    // what the panel shows — 4 chars max
+  /* THREE characters, hard. Every layout is built around it: cricket's line
+     is "%-3s %d/%d", and a fourth character makes "Tami 108/1" ten characters
+     — 60px from x=5, which runs off the panel and straight through the right
+     team bar at x=61. ESPN hands out four-character abbreviations for club
+     sides ("Tami" for Tamil Union), so this is the one place that stops them.
+     Every write goes through strlcpy(..., sizeof(abbr)), so narrowing the
+     field truncates at all of them. */
+  char     abbr[4];    // what the panel shows — 3 chars max
   char     name[20];   // dashboard only
   uint16_t color;
   int16_t  score;      // goals / points / runs
