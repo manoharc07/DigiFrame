@@ -47,6 +47,24 @@ jobs:
             "PubSubClient@2.8.0" \
             "ESP32 HUB75 LED MATRIX PANEL DMA Display@3.0.14"
 
+      # The single source of truth for the version is this tag. The dashboard
+      # reads FW_VERSION back out over /api/config and compares it against the
+      # latest release tag on GitHub, so a build that reports a stale version
+      # would either hide a real update or offer one it already has. Stamping
+      # it here removes the manual bump that would eventually be forgotten.
+      - name: Stamp firmware version from the tag
+        run: |
+          set -euo pipefail
+          V="${GITHUB_REF_NAME#v}"
+          python3 - "$V" <<'EOF'
+          import re, sys, pathlib
+          p = pathlib.Path("firmware/DigiFrame/config.h")
+          s, n = re.subn(r'(?m)^(#define FW_VERSION\s+)"[^"]*"', lambda m: m.group(1) + '"%s"' % sys.argv[1], p.read_text(encoding="utf-8"))
+          assert n == 1, "FW_VERSION not found in config.h"
+          p.write_text(s, encoding="utf-8")
+          EOF
+          grep -E '^#define FW_VERSION' firmware/DigiFrame/config.h
+
       - name: Compile
         run: arduino-cli compile --fqbn "$FQBN" --output-dir build firmware/DigiFrame
 

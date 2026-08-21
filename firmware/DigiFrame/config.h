@@ -39,6 +39,43 @@
    http://digiframe.local once on your network). ---- */
 #define CLOUD_SITE_URL "https://digiframe.pages.dev"
 
+/* ---- firmware version + one-click update (updater.h) ------------------
+   FW_VERSION is what the dashboard shows and what the update check compares
+   against. The single source of truth is the **git tag**: the release
+   workflow rewrites this line from ${GITHUB_REF_NAME} before it compiles, so
+   a tagged build always reports its own tag and this checked-in value is only
+   what a local build calls itself. Keep it plain "major.minor.patch".
+
+   THE CHECK RUNS IN THE BROWSER, NOT ON THE FRAME. When the dashboard opens
+   it asks api.github.com for the latest release, compares the tag against the
+   `fw` field of /api/config, and shows a banner. This is the same
+   browser/frame split the team and league pickers use, and for the same
+   reasons: api.github.com sends `Access-Control-Allow-Origin: *`, the reply
+   is 6.6 KB of JSON that is nothing in a browser, and the frame is spared a
+   TLS session, a JSON parse and a periodic timer for something only worth
+   knowing while somebody is looking at the page.
+
+   THE DOWNLOAD CANNOT. github.com 302s the release asset to
+   release-assets.githubusercontent.com, whose response carries no CORS header
+   at all, so `fetch()` cannot read those 1.6 MB and hand them to /api/ota.
+   That single missing header is the whole reason updater.h exists on the
+   device: the browser sends the frame a URL, and the frame pulls the bytes
+   itself. Both halves are pinned by tests/test_update.py so a policy change
+   on either is noticed rather than guessed at.
+
+   The asset is https-only (the redirect's SAS signature carries `spr=https`),
+   so unlike the ESPN provider this cannot be done in the clear — and TLS does
+   not fit beside the framebuffer. The install deletes the panel to afford it;
+   see panelTeardown() in updater.h for the measured numbers.
+
+   UPDATE_REPO and UPDATE_ASSET_SUFFIX are served in /api/config so the page
+   knows which repo to ask about and which of the release's two binaries is
+   the app-only one. Point them at your own fork and the dashboard follows. */
+#define FW_VERSION           "1.2.0"
+#define UPDATE_REPO          "manoharc07/DigiFrame"
+#define UPDATE_ASSET_SUFFIX  "-update.bin"
+#define UPDATE_CHUNK         4096               // download -> Update.write block
+
 /* ---- Home Assistant integration over MQTT (all overridable at runtime from
    the dashboard). Off by default so non-HA users are unaffected. Point
    MQTT_HOST at your broker (e.g. the Mosquitto add-on) and enable it. The
@@ -96,6 +133,11 @@
    a far cheaper "what is on today": events?dates is ~1 KB for a full slate and
    each competition status is ~350 B, so the scan stops at the first live match
    and usually costs two calls. */
+/* Cricket ball-by-ball for the card's six-pill strip. Its own cadence, well
+   below the score tick: a page is ~10 KB against the score's 6.7 KB, and an
+   over takes about four minutes, so a minute between fetches never loses a
+   ball while costing a third of what polling it at the score rate would. */
+#define ESPN_BALLS_MS      60000UL      // 1 min: refresh the last-six-balls strip
 #define ESPN_SCAN_MS       300000UL     // 5 min: re-scan a league for a live match
 #define ESPN_SCAN_MAX      8            // events inspected per scan, newest first
 /* Team names and colours for matches with no followed team, held in RAM

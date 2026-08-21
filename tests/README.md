@@ -3,6 +3,7 @@
 ```
 python tests/run.py                 # everything
 python tests/run.py --only espn     # ESPN contract only — no device needed
+python tests/run.py --only update   # GitHub update contract — no device needed
 python tests/run.py --host 192.168.1.50 -v
 python tests/run.py --list
 ```
@@ -20,6 +21,7 @@ have all been at the boundaries.
 | Group | Needs | Covers |
 |---|---|---|
 | `espn` | internet | the assumptions `espn_api.h` is built on |
+| `update` | internet | the GitHub CORS policy the one-click update rests on |
 | `parsers` | device | the provider's pure functions, via `GET /api/devtest` |
 | `device` | device | the HTTP API every front end depends on |
 | `panel` | device + numpy | what the LEDs are actually showing |
@@ -69,6 +71,54 @@ separates "ESPN changed" from "we broke it":
 - **situation carries possession cheaply** — the NFL chevron's only source, and
   the check that soccer's equivalent is still an empty stub (which is why only
   NFL pays for the call).
+
+- **cricket ball-by-ball paging and sentinel** — `limit` pages from the start of
+  the innings, and every page carries a padding entry whose valid-looking
+  playType would freeze the pill strip forever.
+- **cricket ball ids reset at the innings break** — ids are monotonic
+  only WITHIN an innings; a second innings restarts near zero, which is why
+  the strip is rebuilt from the tail page instead of appended to by id.
+- **cricket ball page is expensive enough to count** — a six-ball page is
+  ~16 KB, which is why the reach-back to the previous page is conditional.
+- **cricket overs need linescores after the first innings** — from then on
+  both sides carry a `(… ov)`, so only `isBatting` on the `isCurrent`
+  innings says whose overs the card should print.
+- **match-state words are prose** — why the suspension keywords fold case.
+
+### `update` — one missing header holds the whole design up
+
+The update feature is split across two machines, and the split rests entirely
+on GitHub's CORS policy: the **check** runs in the browser because
+`api.github.com` sends `Access-Control-Allow-Origin: *`, and the **download**
+runs on the frame because the release asset does not. Neither is a documented
+promise, and either flipping fails silently — a check that reports a bare CORS
+error with no cause visible, or a device paying for a TLS session it no longer
+needs.
+
+- **release api is readable from a browser** — the reason `updateCheck()` is
+  not on the ESP32. If this fails, the check has to move onto the device and
+  buy a TLS session, a filtered JSON parse and a periodic timer for an answer
+  only worth having while somebody is looking at the dashboard.
+- **release asset is NOT readable from a browser** — the load-bearing
+  negative, and the entire justification for `updater.h`. The day this starts
+  sending the header, the frame can stop doing TLS.
+- **asset url matches the firmware allowlist** — `updUrlAllowed()` pins the
+  frame to its own repo's releases, so the shape of `browser_download_url` is
+  now part of the contract. If GitHub changes it, the frame refuses its own
+  update.
+- **asset redirect stays https** — why `HTTPC_STRICT_FOLLOW_REDIRECTS`, and
+  why this one cannot be done in the clear like the ESPN provider.
+- **asset is an app image not the merged one** — checks the
+  `esp_app_desc_t` magic at 0x20 on *both* release binaries: the app-only
+  image has it, the full-flash image must not, because the asset-name suffix
+  is the only thing keeping the dashboard off the one that would wipe
+  LittleFS.
+- **firmware version is a plain semver** — the dashboard compares field by
+  field as integers, so anything the release workflow's stamp would not
+  produce compares as 0 and can hide a real update.
+- the last two need a device: that `/api/config` serves the three values the
+  page cannot check without, and that `/api/update` refuses a URL pointing
+  anywhere but the configured repo.
 
 ### `parsers` — the logic that had real bugs
 

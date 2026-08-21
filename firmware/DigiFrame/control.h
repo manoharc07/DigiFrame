@@ -450,6 +450,27 @@ String ctlListGifsJson() {
   return out;
 }
 
+/* ---- one-click firmware update -----------------------------------------
+   The dashboard did the checking (browser side, see config.h) and hands over
+   the release tag and the app-image URL it found. All that is decided here is
+   whether to accept them; loop() does the work on the next pass, because
+   updateInstall() stops servicing sockets and this call still owes the
+   browser a reply.
+
+   Returns the reason it refused, or "" if the install is queued.        */
+String ctlUpdateStart(const String &url, const String &tag, uint32_t size) {
+  if (updBusy || updInstallNow)   return "an update is already running";
+  if (!updUrlAllowed(url))        return "url is not a " UPDATE_REPO " release asset";
+  if (url.length() >= sizeof(updUrl)) return "url too long";
+  strlcpy(updUrl, url.c_str(), sizeof(updUrl));
+  strlcpy(updTag, tag.length() ? tag.c_str() : "update", sizeof(updTag));
+  updSize   = size;
+  updErr[0] = ' ';
+  updInstallNow = true;
+  logLine("update queued: " + String(updTag));
+  return "";
+}
+
 String ctlStatusJson() {
   String tk = botToken;                        // token is masked for display
   if (tk.length() > 10) tk = tk.substring(0, 6) + "..." + tk.substring(tk.length() - 4);
@@ -464,6 +485,14 @@ String ctlStatusJson() {
   d["interval"] = charEveryMs / 60000UL;
   d["mode"]     = (int)mode;
   d["heap"]     = ESP.getFreeHeap() / 1024;
+  /* What the browser needs to run the update check itself: the version this
+     build calls itself, and which repo/asset to look for. Serving the repo
+     rather than hardcoding it in the page keeps a fork working unchanged. */
+  d["fw"]       = FW_VERSION;
+  d["updRepo"]  = UPDATE_REPO;
+  d["updAsset"] = UPDATE_ASSET_SUFFIX;
+  d["updBusy"]  = (bool)updBusy || (bool)updInstallNow;
+  d["updErr"]   = updErr;
   d["ip"]       = WiFi.localIP().toString();
   d["wifi"]     = (WiFi.status() == WL_CONNECTED)
                     ? "connected, IP " + WiFi.localIP().toString()
@@ -511,6 +540,10 @@ String ctlStatusJson() {
       o["fav"]   = m.home.fav || m.away.fav;
       o["s"]     = String(m.home.abbr) + " " + m.home.score + "-" +
                    m.away.score + " " + m.away.abbr;
+      /* the recent-events strip as characters — cricket's last six deliveries.
+         Reading it here beats decoding pill colours out of a panel capture,
+         where the black digit splits every pill into two coloured runs. */
+      o["strip"] = m.strip;
     }
   }
   String out;

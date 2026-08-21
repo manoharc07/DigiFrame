@@ -25,7 +25,11 @@ static inline uint32_t panelScanPeriodMs() {
 /* Present the completed back buffer. Use this everywhere instead of calling
    dma->flipDMABuffer() directly: flipDMABuffer() is not virtual, so the
    screenshot shadow can only be kept in step through a single choke point. */
+/* The null check is not defensive padding: updateInstall() deliberately
+   deletes the panel to free its 64 KB of internal DRAM (see updater.h), and
+   between that point and the reboot there is genuinely no panel to draw on. */
 static inline void panelPresent() {
+  if (!dma) return;
   dma->flipDMABuffer();
   dma->present();          // keep the /api/frame shadow in step (no-op when disarmed)
 }
@@ -94,6 +98,29 @@ volatile bool weatherNow   = false;  // web handler asks for an immediate refetc
 volatile bool tgTokenDirty = false;  // set by web handler (core 1), applied by tgTask (core 0)
 bool          portalActive = false;  // setup hotspot + captive portal active
 volatile bool wifiRetryNow = false;  // web handler asks for an immediate STA (re)connect
+
+/* ---- update state (updater.h) -----------------------------------------
+   There is no check here: the dashboard does that in the browser and POSTs
+   the result to /api/update (see the note in config.h). All the frame keeps
+   is the one job it cannot delegate — the asset URL it was handed, and
+   whether it is currently pulling it. Fixed char[] for the same reason
+   cfgLat/cfgLon are: written by the web handler, read by loop().        */
+volatile bool updInstallNow = false;  // dashboard asked to install; loop() runs it
+/* An install needs the internal DRAM the other TLS users are holding, and
+   suspending a task does not give it back — a task frozen mid-handshake still
+   owns its ~32 KB. So the installer ASKS first and waits for an ack: each
+   network task drops its session at the top of its loop and parks. Freeing
+   another task's TLS context from core 1 would be a use-after-free the moment
+   that task resumed, which is why this is a handshake and not a stop() call.
+   Measured: the download fails outright without it (HTTP -1, no heap). */
+volatile bool netQuiesce    = false;  // installer asks the network tasks to park
+volatile bool tgIdle        = false;  // tgTask has dropped its TLS session
+volatile bool weatherIdle   = false;  // weatherTask is between fetches
+volatile bool updBusy       = false;  // an install is in progress on core 1
+char          updTag[24]    = "";     // tag being installed, for the panel + logs
+char          updUrl[224]   = "";     // its app-image asset URL
+uint32_t      updSize       = 0;      // asset size in bytes, 0 if unknown
+char          updErr[80]    = "";     // last install failure, "" if none
 
 /* defined in later headers, called from the tasks below */
 void handleTelegram();
@@ -249,6 +276,13 @@ uint32_t charEveryMs    = 10UL * 60000UL;   // random character cameo interval
 /* ---- background task: Telegram polling on core 0 ---- */
 void tgTask(void *pv) {
   for (;;) {
+    if (netQuiesce) {            // a firmware install wants the DRAM this
+      tgClient.stop();           // session is holding — see netQuiesce above
+      tgIdle = true;
+      vTaskDelay(pdMS_TO_TICKS(200));
+      continue;
+    }
+    tgIdle = false;
     if (tgTokenDirty) {                 // token changed on the dashboard —
       tgTokenDirty = false;             // apply it here so only this task
       bot.updateToken(botToken);        // ever touches the bot client
@@ -278,6 +312,14 @@ void weatherTask(void *pv) {
   vTaskDelay(pdMS_TO_TICKS(2000));        // let setup() finish first
   uint32_t lastFetch = 0;
   for (;;) {
+    /* Acknowledged here, at the top: fetchWeather()'s WiFiClientSecure is a
+       local, so parking between fetches is what actually frees it. */
+    if (netQuiesce) {
+      weatherIdle = true;
+      vTaskDelay(pdMS_TO_TICKS(200));
+      continue;
+    }
+    weatherIdle = false;
     if (WiFi.status() == WL_CONNECTED &&
         (weatherNow || !lastFetch || millis() - lastFetch > 20UL * 60000UL)) {
       weatherNow = false;

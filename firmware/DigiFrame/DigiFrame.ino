@@ -35,6 +35,7 @@
  *   scene.h         clock face + ambient scene
  *   scroll.h        scrolling text renderer
  *   party.h         celebration (special-day) mode + test mode
+ *   updater.h       firmware version + OTA install (upload or one-click)
  *   control.h       shared control layer (HTTP + MQTT call the same ctl*)
  *   telegram.h      Telegram bot commands + menus
  *   web_portal.h    web dashboard + captive portal pages
@@ -93,6 +94,7 @@
 #include "score_widget.h"     // live scores: the dispatcher renderClock() calls
 #include "scroll.h"
 #include "party.h"
+#include "updater.h"        // firmware version + the OTA install path
 #include "control.h"
 #include "telegram.h"
 #include "web_portal.h"
@@ -158,6 +160,7 @@ void setup() {
   loadEvents();
   loadTeams();                // favourite teams for the live-score widget
   loadConfig();
+  loadUpdateErr();            // report a failed download once, then forget it
   dma->setBrightness8(userBrightness);
 
   /* ---- wifi (falls back to hotspot + on-screen QR portal) ---- */
@@ -328,6 +331,17 @@ void loop() {
       case TGC_ESPN_CAT:   ctlSaveEspnCatalogue(req.intArg, req.strArg); break;
       default: break;
     }
+  }
+
+  /* --- one-click firmware update, requested by the dashboard -----------
+         Deliberately here and not inside the /api/update handler: that
+         handler runs inside web.handleClient(), and updateInstall() stops
+         servicing sockets for the whole download. Answering first and
+         installing on the next pass is what lets the browser be told the
+         update started. --- */
+  if (updInstallNow) {
+    updInstallNow = false;
+    updateInstall();             // returns only on failure; success reboots
   }
 
   /* --- frame clock: one phase-correcting deadline for every renderer ---

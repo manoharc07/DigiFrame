@@ -51,9 +51,18 @@ input[name=tab]{display:none}
 /* Destructive, and therefore quiet: unfollow was the loudest control on the
    page when it was a full pink button next to the thing it deletes. */
 button.x{background:#2a2a3d;color:#9aa;padding:4px 8px;font-size:12px;line-height:1}
-button.x:hover{background:#4a2634;color:#ffb0c4}</style>
+button.x:hover{background:#4a2634;color:#ffb0c4}
+/* update banner — the one thing on this page the user did not go looking for,
+   so it sits above the tabs rather than inside Settings where the rest of the
+   firmware controls live. Hidden until there is genuinely a newer release. */
+#updban{display:none;align-items:center;gap:9px;margin:8px 0;padding:9px 10px;font-size:13px;
+ border-radius:8px;background:#1d2b1f;border:1px solid #2f6b3a;color:#cfedd4}
+#updban .g{flex:1;min-width:0}#updban b{color:#eaffee}
+#updban button{background:#2f9c4a;padding:6px 10px;font-size:12px;white-space:nowrap}
+#updban.warn{background:#2b1d20;border-color:#6b2f3a;color:#f0d0d6}</style>
 </head><body><h1>&#9200; DigiFrame</h1>
 <div id=strip>connecting&hellip;</div>
+<div id=updban></div>
 <input type=radio name=tab id=t1 checked><input type=radio name=tab id=t2>
 <input type=radio name=tab id=t3><input type=radio name=tab id=t4>
 <div class=tabs><label for=t1>Now</label><label for=t2>Scores</label>
@@ -151,10 +160,15 @@ follow kicks off, and goes back to the clock scene after the match</div></fields
 <input id=mqw type=password placeholder="password" style="width:45%">
 <button onclick=saveMqtt()>Save</button>
 <div class=st>the clock announces itself to Home Assistant via MQTT discovery</div></fieldset>
-<fieldset><legend>Firmware (OTA)</legend>
+<fieldset><legend>Firmware</legend>
+<div class=st>running <b id=fwv>&hellip;</b></div>
+<button onclick="updCheck(1)">&#8635; Check for updates</button>
+<div class=st id=ust>checks github for a newer release</div>
+<details style="margin-top:10px"><summary class=st style=cursor:pointer>install a .bin by hand</summary>
 <input type=file id=fw accept=.bin aria-label="firmware image"><br>
-<button onclick=ota()>&#9889; Update firmware</button>
-<div class=st id=ost>upload DigiFrame.ino.bin (app image) &mdash; frame reboots when done</div></fieldset>
+<button onclick=ota()>&#9889; Upload &amp; flash</button>
+<div class=st id=ost>DigiFrame.ino.bin (app image) &mdash; frame reboots when done</div>
+</details></fieldset>
 <fieldset><legend>Logs (live)</legend>
 <pre id=log style="background:#0a0a12;padding:8px;border-radius:6px;max-height:220px;overflow:auto;font-size:11px;white-space:pre-wrap;margin:0"></pre>
 <button onclick="loadLogs()">&#8635; Refresh</button></fieldset>
@@ -178,12 +192,84 @@ function ota(){if(!fw.files[0]){ost.textContent='pick a .bin first';return}
  x.onerror=()=>{ost.textContent='upload failed (connection lost)'};
  let fd=new FormData();fd.append('file',fw.files[0]);x.send(fd);
  ost.textContent='uploading...'}
+/* ---- firmware update ----
+ The CHECK runs here, in the browser, and not on the frame. api.github.com
+ sends Access-Control-Allow-Origin:* so this page may read it, the reply is
+ 6.6 KB of JSON that costs a phone nothing, and it is only worth knowing while
+ somebody is actually looking at the dashboard — which is precisely when this
+ code runs. Putting it on the device would have bought a TLS session, a
+ filtered JSON parse and a periodic timer for the same answer.
+ The DOWNLOAD cannot run here, which is the whole reason /api/update exists.
+ github.com 302s a release asset to release-assets.githubusercontent.com,
+ whose response carries no CORS header at all, so fetch() can never read those
+ 1.6 MB to hand them to /api/ota. The page sends the frame a URL instead and
+ the frame pulls the bytes itself (updater.h). */
+let UPD=null;
+/* Numeric, field by field: "v1.10.0" is newer than "v1.9.0" and lexically
+   smaller, so a string compare gets this exactly backwards. */
+function vcmp(a,b){const p=v=>String(v).replace(/^v/i,'').split('.').map(n=>parseInt(n,10)||0);
+ a=p(a);b=p(b);for(let i=0;i<3;i++){const d=(a[i]||0)-(b[i]||0);if(d)return d<0?-1:1}return 0}
+async function updCheck(manual){
+ if(!CFG||!CFG.updRepo)return;
+ if(manual)ust.textContent='checking github…';
+ try{
+  const r=await fetch('https://api.github.com/repos/'+CFG.updRepo+'/releases/latest');
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  const j=await r.json();
+  /* the app-only image, never the full-flash one: that starts with the
+     bootloader, so the frame would reject it a moment later anyway */
+  const a=(j.assets||[]).find(x=>x.name.endsWith(CFG.updAsset));
+  if(!a){ust.textContent=j.tag_name+' has no '+CFG.updAsset+' asset';return}
+  if(vcmp(CFG.fw,j.tag_name)>=0){UPD=null;updban.style.display='none';
+   ust.textContent='up to date (v'+CFG.fw+', latest '+j.tag_name+')';return}
+  UPD={tag:j.tag_name,url:a.browser_download_url,size:a.size};
+  ust.textContent=j.tag_name+' available — '+Math.round(a.size/1024)+' KB';
+  updban.className='';
+  updban.innerHTML='<div class=g>Firmware <b>'+esc(j.tag_name)+'</b> is available'
+   +' <span style="opacity:.7">(you have v'+esc(CFG.fw)+')</span></div>'
+   +'<button id=updgo>Install</button>';
+  updgo.onclick=updGo;
+  updban.style.display='flex'}
+ catch(e){ust.textContent='could not reach github ('+e.message+')'}}
+async function updGo(){
+ if(!UPD)return;
+ if(!confirm('Install '+UPD.tag+'?\n\nThe frame downloads '+Math.round(UPD.size/1024)
+  +' KB from GitHub and reboots - about 25 seconds. The panel goes dark while it '
+  +'downloads: the screen memory is what pays for the secure connection.'))return;
+ const r=await fetch('/api/update',{method:'POST',
+  headers:{'Content-Type':'application/x-www-form-urlencoded'},
+  body:'u='+encodeURIComponent(UPD.url)+'&t='+encodeURIComponent(UPD.tag)+'&s='+UPD.size});
+ const t=await r.text();
+ if(!r.ok){updban.className='warn';ust.textContent='refused: '+t;
+  updban.innerHTML='<div class=g>Update refused: '+esc(t)+'</div>';return}
+ updban.className='';
+ updban.innerHTML='<div class=g>Installing <b>'+esc(UPD.tag)+'</b> — watch the panel.'
+  +' This page reconnects on its own.</div>';
+ updWait(UPD.tag)}
+/* The frame stops answering the moment it starts: updateInstall() runs on
+   core 1, which is also what services this socket. Silence is the expected
+   state here, not an error — keep asking until it answers, then say whether
+   the version actually moved. */
+async function updWait(tag){
+ const was=CFG.fw;
+ for(let i=0;i<90;i++){
+  await new Promise(r=>setTimeout(r,4000));
+  try{const j=await (await fetch('/api/config',{cache:'no-store'})).json();
+   if(j.updBusy)continue;
+   if(vcmp(j.fw,was)>0){updban.innerHTML='<div class=g>Updated to <b>v'+esc(j.fw)
+     +'</b>.</div>';setTimeout(()=>location.reload(),1500);return}
+   if(j.updErr){updban.className='warn';
+    updban.innerHTML='<div class=g>Update failed: '+esc(j.updErr)+'</div>';
+    ust.textContent='update failed: '+j.updErr;return}}
+  catch(e){}}
+ updban.className='warn';
+ updban.innerHTML='<div class=g>Lost contact with the frame — check the panel.</div>'}
 async function loadCfg(){try{let r=await fetch('/api/config'),j=await r.json();
  ws.placeholder=j.ssid?('SSID: '+j.ssid):'network name (SSID)';
  tc.placeholder=j.chat?('chat id: '+j.chat):'allowed chat id';
  tt.placeholder=j.token?('token: '+j.token):'bot token (from @BotFather)';
  la.placeholder='lat: '+j.lat;lo.placeholder='lon: '+j.lon;
- wst.textContent='WiFi: '+j.wifi;tst.textContent='';
+ wst.textContent='WiFi: '+j.wifi;tst.textContent='';fwv.textContent='v'+j.fw;
  mqe.checked=!!j.mqttEn;mqh.placeholder=j.mqttHost||'broker host/IP';mqp.placeholder=j.mqttPort||1883;mqu.placeholder=j.mqttUser||'username (optional)';
  spe.checked=!!j.sportEn;spsrc.value=j.sportSrc||'demo';spfx.value=j.sportFx;
  if(!sph.value)sph.value=j.sportHold;if(!sprot.value)sprot.value=j.sportRot;
@@ -406,7 +492,7 @@ async function testFx(){await fetch('/api/scoreevent',{method:'POST',
  headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'e='+encodeURIComponent(spfxt.value.split(':')[1]||'')})}
 spq.oninput=onSearch;
 async function boot(){await loadCat();await loadCfg();await loadTeams();
- load();loadLogs();loadEv()}
+ load();loadLogs();loadEv();updCheck(0)}
 boot();
 setInterval(loadLogs,2000);
 setInterval(loadCfg,5000);       // the status strip is the point of the Now tab
@@ -429,67 +515,28 @@ void handleUpload() {
   }
 }
 
-/* ---- OTA firmware update (dashboard "Firmware" section) ----
- * Streams an uploaded app image (DigiFrame.ino.bin) into the spare OTA
- * slot (the fatflash scheme has app0/app1) via Update, then reboots.
- * The first chunk must carry the esp_app_desc_t magic at offset 0x20 —
- * that's what distinguishes an app image from the bootloader/merged
- * images, so uploading the wrong .bin can't soft-brick the frame.
+/* ---- OTA firmware update: the manual upload half ----------------------
+ * Streams a .bin the user picked into the spare OTA slot. The quiesce, the
+ * app-image check and the progress screen are all updater.h's — this is only
+ * the plumbing that turns a multipart upload into calls on them, so a
+ * hand-picked file and a one-click update flash by exactly the same route.
  * The whole upload is parsed inside one web.handleClient() call, so the
  * render loop never interleaves with flash writes. */
-bool     otaBegun     = false;
-String   otaError     = "";
-uint32_t otaLastShown = 0;
-
-void otaScreen(const String &line) {
-  for (int b = 0; b < 2; b++) {          // paint both DMA buffers
-    dma->fillScreen(0);
-    dma->setTextSize(1);
-    dma->setTextColor(C_MSG);
-    dma->setCursor(2, 20);
-    dma->print("UPDATING");
-    dma->setTextColor(C_TEMP);
-    dma->setCursor(2, 34);
-    dma->print(line);
-    panelPresent();
-  }
-}
-
-void otaFail(const String &why) {
-  otaError = why;
-  Update.abort();
-  otaBegun = false;
-  if (tgTaskHandle)      vTaskResume(tgTaskHandle);
-  if (weatherTaskHandle) vTaskResume(weatherTaskHandle);
-  if (mqttTaskHandle)    vTaskResume(mqttTaskHandle);
-  if (sportsTaskHandle)  vTaskResume(sportsTaskHandle);
-  mode = MODE_CLOCK;
-  logLine("OTA FAILED: " + why);
-}
-
 void handleOtaUpload() {
   HTTPUpload &up = web.upload();
   if (up.status == UPLOAD_FILE_START) {
     otaError     = "";
     otaLastShown = 0;
     logLine("OTA start: " + up.filename);
-    if (tgTaskHandle)      vTaskSuspend(tgTaskHandle);      // nothing else may
-    if (weatherTaskHandle) vTaskSuspend(weatherTaskHandle); // touch heap/flash now
-    if (mqttTaskHandle)    vTaskSuspend(mqttTaskHandle);
-    if (sportsTaskHandle)  vTaskSuspend(sportsTaskHandle);
-    closeGif();
+    otaQuiesce();
     otaScreen("0 KB");
     if (!Update.begin(UPDATE_SIZE_UNKNOWN)) { otaFail(Update.errorString()); return; }
     otaBegun = true;
   } else if (up.status == UPLOAD_FILE_WRITE) {
     if (!otaBegun) return;               // already failed — drain the rest silently
-    if (up.totalSize == 0) {             // first chunk: verify app-image descriptor
-      uint32_t magic = 0;
-      if (up.currentSize >= 0x24) memcpy(&magic, up.buf + 0x20, 4);
-      if (magic != 0xABCD5432UL) {
-        otaFail("not an app image - upload DigiFrame.ino.bin");
-        return;
-      }
+    if (up.totalSize == 0 && !otaLooksLikeApp(up.buf, up.currentSize)) {
+      otaFail("not an app image - upload DigiFrame.ino.bin");
+      return;
     }
     if (Update.write(up.buf, up.currentSize) != up.currentSize) {
       otaFail(Update.errorString());
@@ -658,6 +705,15 @@ void setupWeb() {
              ok ? "OK - flashed, rebooting..." : ("FAILED: " + otaError));
     if (ok) { delay(500); ESP.restart(); }
   }, handleOtaUpload);
+
+  /* ---- one-click update: the dashboard found a release, the frame fetches
+          it. Answer first, install on the next loop() pass — see
+          ctlUpdateStart(). ---- */
+  web.on("/api/update", HTTP_POST, []() {
+    String why = ctlUpdateStart(web.arg("u"), web.arg("t"), web.arg("s").toInt());
+    web.send(why.length() ? 400 : 200, "text/plain",
+             why.length() ? why : String("installing " + String(updTag)));
+  });
 
   /* ---- config: current values (token masked) to prefill the form ---- */
 #if DEV_ENDPOINTS

@@ -66,7 +66,11 @@ themed celebrations on your special days. Configure and control it from the
 - **Home Assistant** — optional MQTT integration with auto-discovery: brightness,
   a message box, celebrate/stop buttons, and temperature/mode sensors.
 - **Two ways to configure**: the on-device web dashboard, or Telegram.
-- **OTA firmware updates** from the on-device dashboard.
+- **One-click firmware updates.** The dashboard checks GitHub for a newer
+  release and offers an **Install** button; the frame downloads it and
+  reboots (about 25 seconds, during which the panel is dark — it has to give
+  the screen's memory back to afford the secure connection). Uploading a
+  `.bin` by hand still works, and keeps the progress bar.
 
 ## Hardware
 
@@ -170,10 +174,15 @@ is online the same dashboard lives at `http://digiframe.local`, in four tabs:
 - **Scores** — search ESPN for any team or league to follow, switch whole
   sports on and off, and set rotation, effects and refresh rate.
 - **Content** — GIF upload, random cameos, special days.
-- **Settings** — WiFi, Telegram, weather location, timezone, MQTT, OTA, logs.
+- **Settings** — WiFi, Telegram, weather location, timezone, MQTT, firmware
+  updates, logs.
 
 The team and league pickers search ESPN from *your browser*, not the frame — it
-has neither the memory to hold a league list nor a reason to.
+has neither the memory to hold a league list nor a reason to. The update check
+works the same way: the page asks GitHub whether there is a newer release and
+shows a banner if there is. Only the download itself happens on the frame,
+because GitHub's release assets are the one part a web page is not allowed to
+read.
 
 ### 2. Telegram bot (anywhere)
 
