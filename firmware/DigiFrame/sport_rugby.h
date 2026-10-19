@@ -128,5 +128,7 @@ static const SportModule SPORT_RUGBY = {
   RUGBY_EVENTS, (uint8_t)(sizeof(RUGBY_EVENTS) / sizeof(EventMap)),
   rugbyBody, rugbyEvent, rugbySim,
   "rugby", "270559", rugbyDelta,
-  rugbyProgress, 20000UL   /* phases are long and scores infrequent */
+  rugbyProgress, 20000UL   /* phases are long and scores infrequent */,
+  false,        /* scoreDescends: the score counts up */
+  true          /* fullWidth: colour lives under the name now */
 };

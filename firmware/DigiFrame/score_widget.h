@@ -60,8 +60,8 @@ void drawScoreWidget(uint32_t f) {
   scoreFxPublish();
 
   gfxCard(s->accent);
-  gfxTeamBars(m, f);
-  gfxLiveDot(f, m.state);
+  /* Not every sport wants them — see SportModule.fullWidth. */
+  if (!s->fullWidth) gfxTeamBars(m, f);
   s->drawBody(m, f);
   /* Drawn here, not in each body, so every sport gets the same device in the
      same rows and a new sport_*.h inherits it by supplying one function. */

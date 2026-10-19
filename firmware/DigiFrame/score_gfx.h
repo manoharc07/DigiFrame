@@ -23,13 +23,15 @@
      20  SW_RULE      divider hairline, in the sport's accent
      21  blank
      23  SW_SCORE     score pair, size 2 (16 rows)
-     40  SW_ABBR      team abbreviations, size 1
+     39  SW_ABBR      team abbreviations, size 1
+     47  SW_UNDER     each team's colour, under its own name
      49  SW_BAND      period | detail, size 1
      58  SW_METER     match-progress comet
-     60+ blank        bottom margin; only the edge bars reach here            */
+     60+ blank        bottom margin                                           */
 #define SW_RULE  20
 #define SW_SCORE 23
-#define SW_ABBR  40
+#define SW_ABBR  39
+#define SW_UNDER 47
 #define SW_BAND  49
 #define SW_METER 58
 
@@ -134,12 +136,13 @@ static void gfxTeamBars(const LiveMatch &m, uint32_t f) {
   }
 }
 
-/* blinking live dot, top-right of the card */
-static void gfxLiveDot(uint32_t f, uint8_t state) {
-  if (state != MS_LIVE) return;
-  uint16_t c = ((f / 8) % 2) ? RGB565(255, 60, 60) : RGB565(90, 20, 20);
-  dma->fillRect(PANEL_W - 6, SW_TOP + 2, 2, 2, c);
-}
+/* The blinking live dot that used to sit at PANEL_W-6, SW_TOP+2 is gone.
+   It answered "is this live?" — a question the card barely raises, since it
+   only holds the panel while a match is live or just finished — and it cost
+   two pixels inside F1's interval column, where the top row's gap and the dot
+   drew over each other. Removed for every sport rather than suppressed for
+   one: an indicator worth two pixels on six cards was not worth the collision
+   on the seventh. */
 
 /* ---- progress helpers for SportModule.progress() ----
    Both read what the live tick already stores, so neither costs a request. */
@@ -206,6 +209,43 @@ static void gfxScorePair(int a, int b, uint16_t ca, uint16_t cb, int y, uint32_t
    pixel-exact match of the union of both strings against a capture).
    Dropping the lesser field entirely beats truncating it: a partial stat
    misleads, a missing one is just quiet. */
+/* ---- the band, as one centred unit ----
+   gfxBand splits its two fields to the outer margins, which is right when they
+   are wide and wrong when they are not: "H1" and "22'" ended up either side of
+   twenty dead pixels, and the eye read them as two unrelated things. When the
+   pair fits with a separator between them, set it as ONE object in the middle
+   of the card; when it does not, fall back to the split, which is what the
+   yield rule exists for. The separator is a drawn 2px block, not a glyph —
+   the built-in font's middle dot lives at CP437 0xFA and only renders when
+   cp437(true) has been set, which is not a dependency worth taking. */
+static void gfxBand(const char *left, const char *right, int y, uint16_t c);
+
+static void gfxBandC(const char *left, const char *right, int y, uint16_t c) {
+  int lw = (left  && *left)  ? gfxTextW(left, 1)  : 0;
+  int rw = (right && *right) ? gfxTextW(right, 1) : 0;
+  /* Hockey and rugby pack both facts into `period` and leave `detail` empty.
+     Centre the lone field rather than dropping to gfxBand's left margin, or
+     five cards centre their band and two do not. */
+  if (!lw && !rw) return;
+  if (!lw || !rw) { gfxTextC(lw ? left : right, y, c); return; }
+  int total = lw + 6 + rw;
+  if (total > PANEL_W - 6) {
+    /* Too wide to pair. Split it the way gfxBand would — unless gfxBand's
+       clearance rule would DROP the right field, in which case centre what is
+       left rather than leaving one lonely string hugging a margin that no
+       longer has an edge bar beside it. Hockey ("P2 18'" + "SOG 21") and rugby
+       ("H1 22'" + "TRY") are both this case. */
+    int rx = PANEL_W - 5 - rw;
+    if (rx >= 5 + lw + 3) gfxBand(left, right, y, c);
+    else                  gfxTextC(left, y, c);
+    return;
+  }
+  int x = (PANEL_W - total) / 2;
+  gfxText(left, x, y, c);
+  dma->fillRect(x + lw + 2, y + 3, 2, 2, gfxDim(c, 55));
+  gfxText(right, x + lw + 6, y, gfxDim(c, 70));
+}
+
 static void gfxBand(const char *left, const char *right, int y, uint16_t c) {
   int lw = (left && *left) ? gfxTextW(left, 1) : 0;
   if (lw) gfxText(left, 5, y, c);
@@ -230,9 +270,25 @@ static void gfxBodyStd(const LiveMatch &m, uint32_t f) {
   bool fresh = (millis() - m.changedAt) < 1500;
   gfxScorePair(m.home.score, m.away.score, m.home.color, m.away.color,
                SW_SCORE, f, fresh, fresh);
-  gfxText (m.home.abbr, 5,            SW_ABBR, gfxDim(m.home.color, 95));
-  gfxTextR(m.away.abbr, PANEL_W - 5,  SW_ABBR, gfxDim(m.away.color, 95));
-  gfxBand (m.period, m.detail, SW_BAND, C_BAND);
+  /* x=3, not 5: the 3px edge bars are gone (SportModule.fullWidth), so the
+     names get the columns back. */
+  gfxText (m.home.abbr, 3,            SW_ABBR, gfxDim(m.home.color, 95));
+  gfxTextR(m.away.abbr, PANEL_W - 3,  SW_ABBR, gfxDim(m.away.color, 95));
+
+  /* The team colour now sits UNDER THE NAME IT IDENTIFIES rather than down the
+     edge of the card, where it repeated what the score digits and the code
+     already said and cost six of sixty-four columns. The favourite's rule is
+     2px — the marker the bright bar cap used to carry. Two favourites is the
+     same as none, exactly as it was on the bars. */
+  int hw = gfxTextW(m.home.abbr, 1) - 1;
+  int aw = gfxTextW(m.away.abbr, 1) - 1;
+  bool one = (m.home.fav != m.away.fav);
+  int hh = (one && m.home.fav) ? 2 : 1;
+  int ah = (one && m.away.fav) ? 2 : 1;
+  if (hw > 0) dma->fillRect(3, SW_UNDER + 1 - hh, hw, hh, m.home.color);
+  if (aw > 0) dma->fillRect(PANEL_W - 3 - aw, SW_UNDER + 1 - ah, aw, ah, m.away.color);
+
+  gfxBandC(m.period, m.detail, SW_BAND, C_BAND);
 }
 
 
@@ -261,6 +317,13 @@ static uint16_t gfxPillColor(char ch) {
     default:            return RGB565(150, 210, 150);   // ordinary run
   }
 }
+/* Six filled chips carrying a BLACK glyph is what this used to be, and on a
+   64px panel it read as mud: a mid-tone 8x7 block with a dark 5x7 letter
+   punched out of it resolves to a smudge, and a dot ball got a full chip of
+   its own for saying nothing happened. Inverted now — the ground is a dark
+   tint and the glyph carries the colour, so a W is a W from across the room —
+   and a dot is a quiet 2px mark rather than a chip. Only what HAPPENED gets
+   furniture. */
 static void gfxPills(const char *strip, int y, uint32_t f) {
   int n = (int)strlen(strip);
   if (n <= 0) return;
@@ -269,12 +332,16 @@ static void gfxPills(const char *strip, int y, uint32_t f) {
   int x0 = (PANEL_W - total) / 2;
   for (int i = 0; i < n; i++) {
     int x = x0 + i * (pw + gap);
-    // the newest pill slides in from the right over its first ~8 frames
-    bool newest = (i == n - 1);
-    uint16_t c = gfxPillColor(strip[i]);
-    dma->fillRoundRect(x, y, pw, 7, 2, gfxDim(c, newest ? 100 : 55));
-    char t[2] = { strip[i], 0 };
-    if (strip[i] != '.') gfxText(t, x + 2, y, 0);
+    bool newest = (i == n - 1);          // the newest delivery reads brightest
+    char ch = strip[i];
+    uint16_t c = gfxPillColor(ch);
+    if (ch == '.') {
+      dma->fillRect(x + 3, y + 3, 2, 2, gfxDim(c, newest ? 130 : 80));
+      continue;
+    }
+    dma->fillRoundRect(x, y, pw, 7, 2, gfxDim(c, newest ? 30 : 18));
+    char t[2] = { ch, 0 };
+    gfxText(t, x + 2, y, gfxDim(c, newest ? 100 : 72));
   }
   (void)f;
 }

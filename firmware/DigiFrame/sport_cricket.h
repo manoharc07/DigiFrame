@@ -57,10 +57,35 @@ static int cricketRuns(char c) { return (c == '.' || c == 'W') ? 0 : (c - '0'); 
 static void cricketScoreLine(char *out, size_t n, const Side &sd) {
   /* "%-3.3s" pads AND truncates: the precision is what keeps the line inside
      the card if Side.abbr is ever widened again. Longest possible line is
-     "IND 288/9" — nine characters, 54px from x=5, clear of the right bar. */
-  if (sd.score2 < 0)        snprintf(out, n, "%-3.3s  yet", sd.abbr);
+     "AUS TO BAT" — ten characters, 60px from x=3, which only fits because the
+     edge bars are gone (SportModule.fullWidth). "yet" fitted the old 56px and
+     said less. */
+  if (sd.score2 < 0)        snprintf(out, n, "%-3.3s TO BAT", sd.abbr);
   else if (sd.score2 >= 10) snprintf(out, n, "%-3.3s %d",   sd.abbr, sd.score);
   else                      snprintf(out, n, "%-3.3s %d/%d", sd.abbr, sd.score, sd.score2);
+}
+
+/* Runs per over for the side at the crease, from the two numbers the card is
+   already showing. `period` is "7.3" or "18.2/20"; the digit after the dot is
+   balls into the over, so the denominator is whole*6 + balls. */
+static bool cricketRunRate(const LiveMatch &m, char *out, size_t n) {
+  const Side &bat = m.home.active ? m.home : m.away;
+  if (bat.score2 < 0) return false;                  // has not batted yet
+  int whole = atoi(m.period);
+  const char *dot = strchr(m.period, '.');
+  int balls = (dot && dot[1] >= '0' && dot[1] <= '5') ? dot[1] - '0' : 0;
+  int total = whole * 6 + balls;
+  if (total <= 0) return false;
+  int rr10 = (int)((long)bat.score * 60 / total);
+  if (rr10 > 999) return false;                      // nonsense in, nothing out
+  /* One decimal only while the rate is a single digit, exactly as
+     espnRacingGap() trims a gap past ten seconds: "7.3" beside "RR12.1" is
+     60px against the 58 a centred pair gets, so the whole field was being
+     dropped and the band showed overs alone. A rate of 12 does not need its
+     tenth; a rate of 6.4 does. */
+  if (rr10 >= 100) snprintf(out, n, "RR%d", rr10 / 10);
+  else             snprintf(out, n, "RR%d.%d", rr10 / 10, rr10 % 10);
+  return true;
 }
 
 static void cricketBody(const LiveMatch &m, uint32_t f) {
@@ -81,10 +106,10 @@ static void cricketBody(const LiveMatch &m, uint32_t f) {
      folded into its score lines. Rows: 22, 31, pills 40, then SW_BAND. */
   const int R1 = SW_SCORE - 1, R2 = SW_SCORE + 8;
   cricketScoreLine(line, sizeof(line), m.home);
-  gfxText(line, 5, R1, m.home.active ? (fresh ? 0xFFFF : m.home.color)
+  gfxText(line, 3, R1, m.home.active ? (fresh ? 0xFFFF : m.home.color)
                                      : gfxDim(m.home.color, 45));
   cricketScoreLine(line, sizeof(line), m.away);
-  gfxText(line, 5, R2, m.away.active ? (fresh ? 0xFFFF : m.away.color)
+  gfxText(line, 3, R2, m.away.active ? (fresh ? 0xFFFF : m.away.color)
                                      : gfxDim(m.away.color, 45));
 
   /* a small striker dot on the batting side's bar */
@@ -95,7 +120,15 @@ static void cricketBody(const LiveMatch &m, uint32_t f) {
      one row of the grid cricket cannot use, because its two score rows have
      already spent the space the other sports give to abbreviations. */
   gfxPills(m.strip, SW_BAND - 9, f);
-  gfxBand(m.period, m.detail, SW_BAND, C_BAND);
+  /* The run rate is DERIVED, not fetched. The design review put it in the
+     band's empty half, and it turned out the provider sends no such field —
+     espnLiveW() blanks `detail` for cricket deliberately. But runs and overs
+     are both already on the card, so the number is arithmetic rather than a
+     request: exactly the check CLAUDE.md asks for before adding an indicator.
+     A side that has not batted has no rate, and the band shows overs alone. */
+  char rr[8];
+  if (cricketRunRate(m, rr, sizeof(rr))) gfxBandC(m.period, rr, SW_BAND, C_BAND);
+  else                                   gfxBandC(m.period, m.detail, SW_BAND, C_BAND);
 }
 /* Overs bowled out of the innings' allotment, which the provider stores in
    `period` as "18.2/20" for a limited-overs game. A Test has no such number —
@@ -236,7 +269,10 @@ static void cricketSim(LiveMatch &m, uint32_t t) {
   snprintf(m.period, sizeof(m.period), "%d.%d", inBall / 6, inBall % 6);
   int runs = (inn == 1) ? r1 : r2;
   int rr10 = inBall ? (runs * 60) / inBall : 0;             // run rate x10
-  snprintf(m.detail, sizeof(m.detail), "RR%d.%d", rr10 / 10, rr10 % 10);
+  /* Deliberately NOT written: the live provider sends no run rate, so a
+     simulator that did would demo a card that cannot occur. cricketBody()
+     derives it for both paths instead. */
+  m.detail[0] = 0;
 
   uint16_t prevBall = sdGet16(m, 0);
   if ((uint16_t)ball != prevBall) {
@@ -286,5 +322,7 @@ static const SportModule SPORT_CRICKET = {
   CRICKET_EVENTS, (uint8_t)(sizeof(CRICKET_EVENTS) / sizeof(EventMap)),
   cricketBody, cricketEvent, cricketSim,
   "cricket", "24231", cricketDelta,
-  cricketProgress, 20000UL   /* a ball every ~40 s; the series board is 6.7 KB */
+  cricketProgress, 20000UL   /* a ball every ~40 s; the series board is 6.7 KB */,
+  false,        /* scoreDescends: runs count up */
+  true          /* fullWidth: no edge bars, as on every other card */
 };

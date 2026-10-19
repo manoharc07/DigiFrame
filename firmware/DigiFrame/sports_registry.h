@@ -18,6 +18,7 @@
 #include "sport_nfl.h"
 #include "sport_hockey.h"
 #include "sport_rugby.h"
+#include "sport_f1.h"
 
 static const SportModule *const SPORTS_[] = {
   &SPORT_CRICKET,
@@ -26,6 +27,11 @@ static const SportModule *const SPORTS_[] = {
   &SPORT_NFL,
   &SPORT_HOCKEY,
   &SPORT_RUGBY,
+  /* APPEND only, never insert. /teams.json stores a follow's sport as this
+     table's INDEX and sportOn is a bitmask over it, so reordering silently
+     remaps every saved favourite. The all-ones sportOn default also means a
+     newly appended sport arrives enabled on installs that predate it. */
+  &SPORT_F1,
 };
 
 /* the extern pair sports_core.h declared */

@@ -88,7 +88,8 @@ required to watch one. &#128204; puts a match on the panel until it finishes.</d
 <div class=pane id=p2>
 <fieldset><legend>Follow</legend>
 <div class=row><label>find <select id=spkind aria-label="what to search" onchange=doSearch()>
-<option value=team>teams</option><option value=league>leagues</option></select></label></div>
+<option value=team>teams</option><option value=league>leagues</option>
+<option value=driver>F1 drivers</option></select></label></div>
 <input id=spq placeholder="Arsenal, Chennai, Lakers&hellip;" style="width:98%" autocomplete=off
  aria-label="search ESPN">
 <div id=spr></div>
@@ -339,6 +340,7 @@ function ink(c){c=String(c||'').replace('#','');return /^[0-9a-f]{6}$/i.test(c)?
 function onSearch(){clearTimeout(TMR);TMR=setTimeout(doSearch,300)}
 async function doSearch(){const q=spq.value.trim();
  if(spkind.value=='league')return doLeagueSearch(q);
+ if(spkind.value=='driver')return doDriverSearch(q);
  if(q.length<3){spr.innerHTML='';return}
  const mine=++SEQ;spr.innerHTML='<div class=gh>searching&hellip;</div>';
  let j;try{const r=await fetch(ESPN_SEARCH+'?limit=25&type=team&query='+encodeURIComponent(q));
@@ -350,7 +352,7 @@ async function doSearch(){const q=spq.value.trim();
  let hits=[];
  for(const it of (j.items||[])){const s=CAT.findIndex(c=>c.espn==it.sport);
   if(s>=0)hits.push([s,it])}
- if(!hits.length){spr.innerHTML='<div class=gh>nothing in the six sports this frame shows</div>';return}
+ if(!hits.length){spr.innerHTML='<div class=gh>nothing in the sports this frame shows</div>';return}
  /* ESPN ranks by relevance, which still floats age-group and university sides
     up next to the senior club ("chennai" returns ten of them). Those are the
     entries with no abbreviation, so sink them rather than drop them — someone
@@ -370,6 +372,45 @@ async function follow([s,it]){
    '&l='+encodeURIComponent(it.league||'')});
  spr.innerHTML='<div class=gh>'+(r.ok?'following '+esc(it.displayName):await r.text())+'</div>';
  spq.value='';setTimeout(()=>{spr.innerHTML=''},1500);loadTeams()}
+/* ---- F1 drivers ----
+ A grid is twenty-two names, not a search space, so this is a LIST rather than
+ a query — and it comes from the championship standings because that is the
+ only feed carrying ESPN's own three-letter driver codes (VER, ANT). The frame
+ needs that code: Side.abbr is three characters and everything on the race
+ card is laid out around it.
+
+ 247 KB, which is nothing in a browser and impossible on the frame — the same
+ reasoning that put the team and league pickers here. Cached for the session.
+
+ Note ESPN's team SEARCH cannot do this job: type=team returns nothing for a
+ driver, type=player finds them but carries no abbreviation at all. */
+let DRVC=null;
+async function drivers(){
+ if(DRVC)return DRVC;
+ const r=await fetch(ESPN_HOST+'/v2/sports/racing/f1/standings');
+ const j=await r.json();
+ const st=(j.children||[]).find(c=>/driver/i.test(c.name||''));
+ return DRVC=((st&&st.standings.entries)||[]).map(e=>{
+  const g=n=>{const x=(e.stats||[]).find(s=>s.name==n);return x?x.displayValue:''};
+  return {id:e.athlete.id,displayName:e.athlete.displayName,
+          abbreviation:e.athlete.abbreviation,league:'f1',
+          rank:g('rank'),pts:g('championshipPts')}})}
+async function doDriverSearch(q){
+ const s=CAT.findIndex(c=>c.espn=='racing');
+ if(s<0){spr.innerHTML='<div class=gh>this frame has no racing sport</div>';return}
+ const mine=++SEQ;spr.innerHTML='<div class=gh>loading the grid&hellip;</div>';
+ let all;
+ try{all=await drivers()}
+ catch(e){spfb.style.display='';spr.innerHTML='<div class=gh>ESPN unreachable</div>';return}
+ if(mine!=SEQ)return;
+ spfb.style.display='none';
+ const hits=all.filter(d=>!q||d.displayName.toLowerCase().includes(q.toLowerCase())
+                          ||(d.abbreviation||'').toLowerCase().includes(q.toLowerCase()))
+              .map(d=>[s,d]);
+ if(!hits.length){spr.innerHTML='<div class=gh>no driver matches that</div>';return}
+ spr.innerHTML=hits.map(([s,d],n)=>`<div class=hit data-n=${n}><b>${esc(d.abbreviation||'')} ${esc(d.displayName)}</b>`+
+  `<i>P${esc(d.rank)} &middot; ${esc(d.pts)} pts</i></div>`).join('');
+ [...spr.querySelectorAll('.hit')].forEach(el=>el.onclick=()=>follow(hits[el.dataset.n|0]))}
 /* ---- leagues ----
  ESPN's league list is 570 KB, which is nothing in a browser and impossible on
  the frame — the same reasoning that put the team picker here. It is cached for
@@ -440,6 +481,11 @@ function span(){const u=d=>d.getUTCFullYear()+String(d.getUTCMonth()+1).padStart
 function boards(){                    /* unique sport+league pairs worth asking about */
  const out=[],seen={};
  for(const f of FOLLOWS){const c=CAT[f.si];if(!c||!f.on)continue;
+  /* Racing is excluded, twice over: its scoreboard competitors are athletes
+     with no homeAway, so the row below could never be built, and the two-day
+     span is wrong for racing anyway (a range returns zero events where each
+     single day returns the weekend). Asking would spend 24 KB for nothing. */
+  if(c.espn=='racing')continue;
   const lg=f.lg||c.dl;if(!lg)continue;
   const k=c.espn+'/'+lg;if(seen[k])continue;seen[k]=1;out.push({si:f.si,c,lg})}
  return out.slice(0,6)}                // a hard cap: this is a phone on wifi
@@ -760,6 +806,14 @@ void setupWeb() {
       sportsFreeze = true;
       sportsDemoForce((uint8_t)web.arg("sport").toInt());
     }
+    /* Overwrite the frozen match's period string. The demo feed is always a
+       race, so without this there is no way to photograph the card as it
+       looks during qualifying ("Q2") or a sprint — the states the provider
+       reaches but the simulator never does. Frozen matches only. */
+    if (web.hasArg("period") && sportsFreeze && activeMatch >= 0) {
+      LiveMatch &am = scoreFront[activeMatch];       // activeMatchPtr() is const
+      strlcpy(am.period, web.arg("period").c_str(), sizeof(am.period));
+    }
     if (web.hasArg("event"))     scoreTestEvent(web.arg("event").c_str());
     if (web.hasArg("celebrate")) startCelebration(web.arg("celebrate"), web.arg("msg"));
     if (web.hasArg("test"))      startTest("");
@@ -788,6 +842,28 @@ void setupWeb() {
       out["ink"] = teamInk((uint16_t)web.arg("ink").toInt());
     if (web.hasArg("utc"))
       out["epoch"] = espnParseUtc(web.arg("utc").c_str());
+    /* "sportIdx:native" — resolve a native event name exactly as emitEvent()
+       does, so the payload convention ("pass:HAM:VER" selects the same
+       animation as "pass" and carries two driver codes with it) is pinned
+       against the compiled firmware rather than a host-side copy of it. */
+    if (web.hasArg("ev")) {
+      String a = web.arg("ev");
+      int c1 = a.indexOf(':');
+      uint8_t sp = (uint8_t)a.substring(0, c1).toInt();
+      String native = a.substring(c1 + 1);
+      MatchEvent e;
+      memset(&e, 0, sizeof(e));
+      sportMapEvent(sp, native.c_str(), e);
+      char f0[8], f1[8];
+      nativeField(native.c_str(), 0, f0, sizeof(f0));
+      nativeField(native.c_str(), 1, f1, sizeof(f1));
+      out["kind"]  = e.kind;
+      out["punch"] = e.punch;
+      out["label"] = e.label;
+      out["major"] = evIsMajor(e.kind);
+      out["f0"]    = f0;
+      out["f1"]    = f1;
+    }
     if (web.hasArg("delta")) {                    // "sportIdx:dScore:dScore2"
       String a = web.arg("delta");
       int c1 = a.indexOf(':'), c2 = a.lastIndexOf(':');

@@ -149,5 +149,7 @@ static const SportModule SPORT_NFL = {
   NFL_EVENTS, (uint8_t)(sizeof(NFL_EVENTS) / sizeof(EventMap)),
   nflBody, nflEvent, nflSim,
   "football", "nfl", nflDelta,
-  nflProgress, 15000UL   /* scores arrive in bursts between long stoppages */
+  nflProgress, 15000UL   /* scores arrive in bursts between long stoppages */,
+  false,        /* scoreDescends: the score counts up */
+  true          /* fullWidth: colour lives under the name now */
 };

@@ -68,7 +68,18 @@ struct LiveMatch {
   uint16_t eventSeq;         // bumped by the provider each time lastEvent is new
   uint32_t startedAt;        // millis the match went live (simulator clock)
   uint32_t changedAt;        // millis of the last visible change
-  uint8_t  sportData[16];    // opaque scratch a sport module may use freely
+  /* Opaque scratch a sport module may use freely. 112 bytes rather than 16
+     because F1 keeps a whole LEADERBOARD in here — position, code, colour,
+     movement and interval for the top six plus the followed driver. A race
+     has twenty competitors and this struct has two Sides; putting the board
+     in the sport's own scratch is what lets the N-way card exist without a
+     second cross-core copy path, because sportData already rides the same
+     memcpy from scoreBack to scoreFront that everything else does.
+
+     Access it through memcpy into a local struct, never by casting a pointer
+     into the array: this member's offset inside LiveMatch is not guaranteed
+     even, and an unaligned 16-bit load faults on Xtensa. */
+  uint8_t  sportData[112];
 };
 
 /* sportData accessors — a sport module's private scratch inside the match */
@@ -242,6 +253,24 @@ struct SportModule {
      Test match does not. Polling them alike either wastes requests or shows a
      stale score, so the sport says which it is. 0 = use ESPN_LIVE_MS. */
   uint32_t liveMs;
+
+  /* A race position improves by FALLING: P8 -> P5 is progress, not a setback,
+     and sportsDiff() only derives an event from a delta that grew. Sports
+     whose score counts up leave this false — which is exactly what aggregate
+     initialisation gives the six modules that predate the field, so the
+     default must stay the falsy one. Never reorder it above `liveMs`. */
+  bool scoreDescends;
+
+  /* This sport owns the full 64px width, so the widget skips the 3px team
+     bars down each edge. They say "these two are playing and this one is
+     yours", which is true of every sport with two sides and of none with
+     twenty: F1's bars showed the followed driver's and the leader's colours
+     while the card beneath them listed six drivers, and they cost the six
+     pixels the leaderboard's interval column needed.
+
+     Falsy means "draw the bars", which is what aggregate initialisation gives
+     every module that predates the field — same rule as scoreDescends. */
+  bool fullWidth;
 };
 
 /* Defined by sports_registry.h, which is included after the modules. Declared
@@ -260,10 +289,22 @@ static int sportIndexByKey(const char *key) {
 }
 /* resolve a native event name through a sport's map; falls back to a
    generic major-score event so an unknown name still animates. */
+/* A native name may carry a ':'-separated PAYLOAD: "pass:HAM:VER" selects the
+   same animation as "pass" and hands the two driver codes to the sport's own
+   drawEvent, which reads them straight off MatchEvent.native.
+
+   The alternative was two more fields on MatchEvent, and this needs none: the
+   payload rides the event ring already, survives the queueing delay between
+   the poll that saw the pass and the frame that draws it, and makes evPush's
+   dedupe distinguish two different overtakes — which is correct, where
+   deduping them by kind alone would have dropped the second. */
 static void sportMapEvent(uint8_t sport, const char *native, MatchEvent &e) {
   const SportModule *s = sportOf(sport);
+  const char *colon = strchr(native, ':');
+  size_t stem = colon ? (size_t)(colon - native) : strlen(native);
   for (uint8_t i = 0; i < s->numEvents; i++) {
-    if (!strcmp(s->events[i].native, native)) {
+    if (!strncmp(s->events[i].native, native, stem) &&
+        s->events[i].native[stem] == 0) {
       e.kind = s->events[i].kind;
       strlcpy(e.punch, s->events[i].punch, sizeof(e.punch));
       strlcpy(e.label, s->events[i].label, sizeof(e.label));
@@ -273,6 +314,23 @@ static void sportMapEvent(uint8_t sport, const char *native, MatchEvent &e) {
   e.kind = EV_SCORE_MAJOR;
   strlcpy(e.punch, "+1", sizeof(e.punch));
   strlcpy(e.label, native, sizeof(e.label));
+}
+
+/* Pull field `n` (0-based) out of a payload native name: f1Payload("pass:HAM:VER", 1)
+   yields "HAM". Empty when the field is absent, so an event fired by hand from
+   /test — which has no payload — falls back to the static punch and label. */
+static void nativeField(const char *native, uint8_t n, char *out, size_t len) {
+  out[0] = 0;
+  const char *p = native;
+  for (uint8_t i = 0; i <= n; i++) {
+    p = strchr(p, ':');
+    if (!p) return;
+    p++;
+    if (i == n) break;
+  }
+  size_t k = 0;
+  while (*p && *p != ':' && k < len - 1) out[k++] = *p++;
+  out[k] = 0;
 }
 
 /**********************  7d. FOLLOWS (/teams.json)  *******************/
@@ -484,12 +542,17 @@ static void sportsDiff(const LiveMatch &prev, const LiveMatch &cur, bool isNew) 
        three-pointer, +6 a touchdown, a wicket moves score2 while score may
        not), and "score" is the fallback every sport maps. */
     const SportModule *s = sportOf(cur.sport);
-    int dh  = cur.home.score - prev.home.score;
-    int da  = cur.away.score - prev.away.score;
+    /* Normalise "the score got better" to a positive number, so a sport whose
+       score descends (F1: score IS the grid position) reaches eventForDelta
+       at all. dir also flips the lead comparison below — with dir -1, home P1
+       against away P2 gives a lead of +1, which is the truth. */
+    int dir = s->scoreDescends ? -1 : 1;
+    int dh  = dir * (cur.home.score - prev.home.score);
+    int da  = dir * (cur.away.score - prev.away.score);
     int dh2 = (cur.home.score2 != SCORE2_NONE && prev.home.score2 != SCORE2_NONE)
-                ? cur.home.score2 - prev.home.score2 : 0;
+                ? dir * (cur.home.score2 - prev.home.score2) : 0;
     int da2 = (cur.away.score2 != SCORE2_NONE && prev.away.score2 != SCORE2_NONE)
-                ? cur.away.score2 - prev.away.score2 : 0;
+                ? dir * (cur.away.score2 - prev.away.score2) : 0;
     if (dh > 0 || dh2 > 0) {
       const char *ev = s->eventForDelta ? s->eventForDelta(dh, dh2) : nullptr;
       emitEvent(cur, true, ev ? ev : "score");
@@ -501,8 +564,9 @@ static void sportsDiff(const LiveMatch &prev, const LiveMatch &cur, bool isNew) 
   }
 
   /* lead change — only once the scores are actually different */
-  int prevLead = prev.home.score - prev.away.score;
-  int curLead  = cur.home.score  - cur.away.score;
+  int ldir     = sportOf(cur.sport)->scoreDescends ? -1 : 1;
+  int prevLead = ldir * (prev.home.score - prev.away.score);
+  int curLead  = ldir * (cur.home.score  - cur.away.score);
   if (curLead != 0 && ((prevLead <= 0 && curLead > 0) || (prevLead >= 0 && curLead < 0)))
     emitEvent(cur, curLead > 0, "lead");
 

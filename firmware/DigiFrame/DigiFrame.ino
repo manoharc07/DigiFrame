@@ -85,12 +85,16 @@
 #include "gif_player.h"
 #include "events_store.h"
 #include "sports_core.h"      // live scores: model, favourites store, poll task
-#include "espn_api.h"         // live scores: the ESPN provider behind sportSrc="http"
 #include "weather.h"
 #include "scene.h"
 #include "score_gfx.h"        // live scores: shared drawing toolkit
 #include "score_fx.h"         // live scores: generic event animations
 #include "sports_registry.h"  // live scores: the sport modules
+/* AFTER the sport modules, not before them: the provider fills each sport's
+   own data layout, and F1 keeps a whole leaderboard in LiveMatch.sportData
+   that only sport_f1.h describes. sports_core.h forward-declares every
+   espn* entry point it needs, so nothing above here depends on this. */
+#include "espn_api.h"         // live scores: the ESPN provider behind sportSrc="http"
 #include "score_widget.h"     // live scores: the dispatcher renderClock() calls
 #include "scroll.h"
 #include "party.h"

@@ -130,5 +130,7 @@ static const SportModule SPORT_BASKETBALL = {
   BASKETBALL_EVENTS, (uint8_t)(sizeof(BASKETBALL_EVENTS) / sizeof(EventMap)),
   basketballBody, basketballEvent, basketballSim,
   "basketball", "nba", basketballDelta,
-  basketballProgress, 10000UL   /* the score moves every few seconds */
+  basketballProgress, 10000UL   /* the score moves every few seconds */,
+  false,        /* scoreDescends: the score counts up */
+  true          /* fullWidth: colour lives under the name now */
 };

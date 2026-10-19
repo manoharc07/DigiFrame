@@ -115,10 +115,69 @@ def test_score_delta_to_event():
         (3, 7, 0, "td"),        (3, 2, 0, "twopt"),
         (4, 1, 0, "goal"),
         (5, 5, 0, "try"),       (5, 3, 0, "pen"),     (5, 2, 0, "con"),
+        # F1's score IS the grid position, which improves by FALLING. This
+        # endpoint calls eventForDelta directly, and sportsDiff normalises the
+        # sign before it gets there (SportModule.scoreDescends), so what a
+        # racing module sees is always "places gained" — positive.
+        (6, 1, 0, "pass"),      (6, 3, 0, "pass"),     (6, 0, 0, ""),
     ]
     for sport, d1, d2, want in cases:
         r = devtest(delta=f"{sport}:{d1}:{d2}")
         eq(r["event"], want, f"{r['sport']} delta +{d1}/{d2}")
+
+
+@test("parsers")
+def test_event_names_carry_a_payload():
+    """A native event name may carry a ':'-separated payload: "pass:HAM:VER"
+    selects the same animation as "pass" and hands the two driver codes to the
+    sport's own drawEvent through MatchEvent.native.
+
+    That convention is what lets the race card say "HAM PASSES VER" without
+    two more fields on MatchEvent — the payload rides the event ring, so it
+    survives the queueing delay between the poll that saw the pass and the
+    frame that draws it."""
+    F1 = 6
+    bare = devtest(ev=f"{F1}:pass")
+    paid = devtest(ev=f"{F1}:pass:HAM:VER")
+    eq(paid["kind"], bare["kind"], "the payload does not change the animation")
+    eq(paid["punch"], bare["punch"], "nor the fallback punch word")
+    eq(paid["f0"], "HAM", "first payload field")
+    eq(paid["f1"], "VER", "second payload field")
+    eq(bare["f0"], "", "a bare native has no payload, and must not invent one")
+
+    # The events a race card fires have to survive sportFx = 1, which is the
+    # default and which drops anything evIsMajor() excludes.
+    for native in ("pass", "lead", "sc", "vsc", "red", "dnf", "pit",
+                   "ses", "final"):
+        ok(devtest(ev=f"{F1}:{native}")["major"],
+           f"{native} is major, so it shows at the default sportFx=1")
+    # A local yellow fires several times a race, and the divider already
+    # reports the flag continuously — the animation is for sportFx = 2.
+    ok(not devtest(ev=f"{F1}:yellow")["major"],
+       "a yellow flag stays chatter")
+
+
+@test("parsers")
+def test_session_labels_fit_the_period_field():
+    """LiveMatch.period is eight bytes including the NUL, and the card prints
+    it verbatim when there is no lap total. ESPN's competition type id is the
+    only reliable discriminator — FP1, FP2 and FP3 all share id 1, so the
+    abbreviation is what separates those three and nothing else."""
+    for label in ("QUALI", "RACE", "SPR Q", "SPRINT", "FP1", "FP2", "FP3"):
+        ok(len(label) < 8, f"{label} fits LiveMatch.period")
+    # and the payload form the session event carries
+    for native in ("ses:SPRINT", "ses:SPR Q", "ses:QUALI"):
+        ok(len(native) < 16, f"{native} fits MatchEvent.native")
+
+
+@test("parsers")
+def test_race_event_names_fit_the_wire():
+    """MatchEvent.native is sixteen characters including the NUL, which is why
+    the stems are "pass" and not "overtake": "overtake:HAM:VER" is seventeen
+    and would have been truncated into a name nothing matches."""
+    for native in ("pass:HAM:VER", "lead:NOR:VER", "final:VER", "pit:VER", "dnf:HUL"):
+        ok(len(native) < 16, f"{native} fits MatchEvent.native")
+    ok(len("overtake:HAM:VER") >= 16, "which 'overtake' as a stem would not have")
 
 
 # ---- device API ---------------------------------------------------------
@@ -260,10 +319,11 @@ def test_catalogue_exposes_espn_sport_slugs():
     sport_*.h becomes searchable without editing the dashboard."""
     need_device()
     cat = dev_json("/api/catalogue")
-    eq(len(cat), 6, "six sports")
+    ok(len(cat) >= 6, f"the registry is exposed, {len(cat)} sports")
     slugs = {c["key"]: c["espn"] for c in cat}
     eq(slugs["football"], "soccer", "our football is ESPN's soccer")
     eq(slugs["nfl"], "football", "our nfl is ESPN's football")
+    eq(slugs["f1"], "racing", "F1 is ESPN's racing, so NASCAR needs no new branch")
     for c in cat:
         ok(c["espn"], f"{c['key']} has an ESPN sport slug")
         ok(c["fx"], f"{c['key']} lists its animations")
@@ -331,7 +391,9 @@ def test_score_card_renders_for_every_sport():
     Catches a body that throws or draws nothing without needing a live match."""
     import time
     need_device()
-    for sport in range(6):
+    # Walk the registry, not a literal: a new sport_*.h must inherit this
+    # coverage without anyone remembering to bump a number here.
+    for sport in range(len(dev_json("/api/catalogue"))):
         eq(dev_post("/api/dev", sport=sport)[0], 200, f"force sport {sport}")
         time.sleep(1.6)
         f = grab()
@@ -349,7 +411,9 @@ def test_every_sport_lands_on_the_shared_grid():
     divider where it belongs, and nothing spilling into the margin."""
     import time
     need_device()
-    for sport in range(6):
+    # Walk the registry, not a literal: a new sport_*.h must inherit this
+    # coverage without anyone remembering to bump a number here.
+    for sport in range(len(dev_json("/api/catalogue"))):
         eq(dev_post("/api/dev", sport=sport)[0], 200, f"force sport {sport}")
         time.sleep(1.6)
         f = grab()
@@ -364,6 +428,78 @@ def test_every_sport_lands_on_the_shared_grid():
         # rows 60-63 belong to the margin; only the two 3px edge bars reach them
         for y in (61, 62):
             ok(lit(y) <= 6, f"sport {sport}: row {y} margin holds {lit(y)} px")
+    dev_post("/api/stop")
+
+
+@test("panel")
+def test_standard_card_band_is_centred():
+    """The band used to split to the outer margins, leaving period and detail
+    either side of a 20px void. It is one centred object now — and when the
+    pair is too wide to pair (hockey packs "P2 18'" and "SOG 21"), the field
+    that survives gfxBand's clearance rule is centred rather than left hugging
+    a margin that no longer has an edge bar beside it."""
+    import time
+    need_device()
+    cat = dev_json("/api/catalogue")
+    for key in ("football", "basketball", "nfl", "hockey", "rugby"):
+        i = next((j for j, c in enumerate(cat) if c["key"] == key), -1)
+        if i < 0:
+            continue
+        eq(dev_post("/api/dev", sport=i)[0], 200, f"force {key}")
+        time.sleep(1.7)
+        f = grab()
+        on = sorted({x for y in range(49, 56)
+                     for x in range(64) if f[y][x].sum() > 40})
+        ok(on, f"{key}: the band drew nothing")
+        left, right = on[0], 63 - on[-1]
+        ok(abs(left - right) <= 4, f"{key}: band margins {left}/{right} lopsided")
+        ok(left >= 6, f"{key}: band starts at {left} — still hugging the margin")
+    dev_post("/api/stop")
+
+
+@test("panel")
+def test_no_sport_draws_a_live_dot():
+    """The blinking dot at PANEL_W-6 is gone for every sport, not suppressed
+    for one. Row 21 should hold the two 3px edge bars and nothing else — and
+    for a full-width sport, nothing at all."""
+    import time
+    need_device()
+    cat = dev_json("/api/catalogue")
+    for sport in range(len(cat)):
+        eq(dev_post("/api/dev", sport=sport)[0], 200, f"force sport {sport}")
+        time.sleep(1.6)
+        f = grab()
+        lit = int((f[21].sum(axis=1) > 40).sum())
+        ok(lit <= 6, f"sport {sport}: row 21 holds {lit} px — a live dot is back")
+    dev_post("/api/stop")
+
+
+@test("panel")
+def test_race_card_columns_are_balanced():
+    """The board block sits the same distance from both edges.
+
+    It used to be 7px in from the left and 3px from the right, because
+    right-aligning the position put a single digit at x=7 while a two-digit
+    one started at x=1. The position is left-aligned now, so the margin no
+    longer depends on how many digits the number has."""
+    import time
+    need_device()
+    cat = dev_json("/api/catalogue")
+    f1 = next((i for i, c in enumerate(cat) if c["key"] == "f1"), -1)
+    if f1 < 0:
+        raise Skip("no f1 sport registered")
+    eq(dev_post("/api/dev", sport=f1)[0], 200, "force the race card")
+    time.sleep(1.6)
+    f = grab()
+    for y in (24, 32, 40):                       # the three board rows
+        on = [x for x in range(64) if f[y][x].sum() > 40]
+        ok(on, f"row {y} drew nothing")
+        left, right = on[0], 63 - on[-1]
+        # a 5x7 bitmap font varies by a pixel or two with the glyph drawn,
+        # so this asserts balance rather than an exact figure
+        ok(abs(left - right) <= 3,
+           f"row {y} margins {left}/{right} are lopsided")
+        ok(left >= 2 and right >= 2, f"row {y} margins {left}/{right} too tight")
     dev_post("/api/stop")
 
 

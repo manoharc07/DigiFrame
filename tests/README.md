@@ -68,6 +68,32 @@ separates "ESPN changed" from "we broke it":
 - **fixture dates are not the viewer's dates** — ESPN files a fixture under its
   own local date, so both the frame and the dashboard ask for a two-day UTC
   span. A single local day silently returns zero.
+- **racing needs its own path** — a driver is an *athlete*, so `/teams` 404s
+  and there is no `nextEvent`; competitors carry no `homeAway`; position lives
+  in `order`; and a race weekend is one event holding five competitions, so a
+  competition id is *not* its event id. Four assumptions the generic discovery
+  path makes and racing breaks.
+- **racing date spans are not two-day** — the exact opposite of the rule above,
+  and the reason racing has no league scan: the span `20260820-20260821`
+  returned zero events while each of those days alone returned the weekend.
+- **race intervals have no bulk source** â€” the load-bearing negative behind
+  the race card's eight requests a poll: `gapToLeader` exists only per
+  competitor, the competition-level statistics is race aggregates, and the
+  site scoreboard ships empty competitor statistics. If this starts failing,
+  the card can get much cheaper.
+- **racing live primitives are cheap** — the four calls behind the race card
+  (~5.3 KB), and the `flag` field on the competition status that is the only
+  race control the cheap endpoints give away. It also pins the thing that
+  looked like a bug: `gapToLeader` is a category that exists only while the
+  session is *running*, so a missing gap is an empty band field, not an error.
+- **circuit carries the total laps** — the lap count is on neither the event,
+  the competition nor the scoreboard. Without it the match comet has nothing
+  to measure and correctly draws nothing.
+- **driver identity needs the standings, not the search** — team search finds
+  no driver at all and player search finds them with no abbreviation, while
+  `Side.abbr` is three characters and the race card is built around that code.
+  The championship standings are the only CORS-open feed carrying ESPN's own
+  three-letter codes, which is what puts the driver picker in the browser.
 - **situation carries possession cheaply** — the NFL chevron's only source, and
   the check that soccer's equivalent is still an empty stub (which is why only
   NFL pays for the call).
@@ -126,6 +152,11 @@ Exercised through `GET /api/devtest` so assertions land on the **compiled
 firmware**, not a host-side copy that would silently drift from it. That
 endpoint is dev-only and compiles out with `DEV_ENDPOINTS 0`.
 
+`event names carry a payload` pins the `"pass:HAM:VER"` convention against the
+compiled firmware â€” that a payload does not change which animation runs, that a
+bare native invents no payload, and that every event a race card fires survives
+`sportFx = 1` (a pit stop shipped once as `EV_SCORE_MINOR` and was invisible).
+
 Every cricket case is a real ESPN string, and two of them were bugs found on
 the panel: `"426"` (a completed innings) rendered as "has not batted", and the
 batting side's overs were wiped by the fielding side sharing one buffer.
@@ -134,12 +165,13 @@ batting side's overs were wiped by the fielding side sharing one buffer.
 
 Uses the same capture shadow as `dev/panelshot.py`. Checks the clock block
 (rows 0–18) is drawn and stays inviolate — the ambient balloon used to rise
-over the AM/PM text — and that all six sports' cards actually paint, which
-catches a `drawBody` that throws or draws nothing without needing a live match.
+over the AM/PM text — and that every registered sport's card actually paints,
+which catches a `drawBody` that throws or draws nothing without needing a
+live match.
 
 Two tests guard the layout rather than any one sport: `every sport lands on the
 shared grid` checks the gap under the clock, the divider row and the bottom
-margin across all six, and `match comet matches the clock comet` checks the
+margin across every one of them, and `match comet matches the clock comet` checks the
 card's progress meter still uses the clock's own comet colour — the tie between
 the two halves of the panel that the whole design rests on.
 
@@ -148,5 +180,6 @@ the two halves of the panel that the whole design rests on.
 - Device tests **skip**, not fail, when no frame answers at `--host`.
 - Tests that need something live (a fixture today, a cricket match in progress)
   skip with a reason rather than failing on a quiet afternoon.
-- `test_score_card_renders_for_every_sport` drives the panel through all six
-  sports and leaves it back on the clock.
+- `test_score_card_renders_for_every_sport` walks `/api/catalogue` rather than
+  a hardcoded count, so a new `sport_*.h` inherits the coverage, and leaves the
+  panel back on the clock.

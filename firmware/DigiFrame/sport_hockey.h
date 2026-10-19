@@ -127,5 +127,7 @@ static const SportModule SPORT_HOCKEY = {
   HOCKEY_EVENTS, (uint8_t)(sizeof(HOCKEY_EVENTS) / sizeof(EventMap)),
   hockeyBody, hockeyEvent, hockeySim,
   "hockey", "nhl", hockeyDelta,
-  hockeyProgress, 15000UL   /* goals are sudden; the clock is worth keeping fresh */
+  hockeyProgress, 15000UL   /* goals are sudden; the clock is worth keeping fresh */,
+  false,        /* scoreDescends: the score counts up */
+  true          /* fullWidth: colour lives under the name now */
 };

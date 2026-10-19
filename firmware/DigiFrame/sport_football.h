@@ -148,5 +148,7 @@ static const SportModule SPORT_FOOTBALL = {
   FOOTBALL_EVENTS, (uint8_t)(sizeof(FOOTBALL_EVENTS) / sizeof(EventMap)),
   footballBody, footballEvent, footballSim,
   "soccer", "eng.1", footballDelta,
-  footballProgress, 20000UL   /* goals are rare and the clock is coarse */
+  footballProgress, 20000UL   /* goals are rare and the clock is coarse */,
+  false,        /* scoreDescends: the score counts up */
+  true          /* fullWidth: colour lives under the name now */
 };
