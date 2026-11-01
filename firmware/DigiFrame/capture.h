@@ -107,9 +107,12 @@ public:
   }
 
 private:
-  /* Clipped write in raw panel coordinates. The sketch never calls
-     setRotation(), so GFX coordinates are panel coordinates; if rotation
-     is ever used, this needs the same transform() the base class applies. */
+  /* Clipped write in LOGICAL coordinates — deliberately untransformed.
+     With an orientation set (ctlSetOrient), each base primitive runs
+     transform() and writes the DMA buffer directly, never re-entering
+     these virtuals, so the shadow holds the picture as it reads on the
+     mounted frame. That is the screenshot a review wants; the physical
+     scan order is the library's business. */
   inline void shadowPixel(int16_t x, int16_t y, uint16_t color) {
     if (x < 0 || y < 0 || x >= PANEL_W || y >= PANEL_H) return;
     shadowBack[y * PANEL_W + x] = color;

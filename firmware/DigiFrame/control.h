@@ -378,15 +378,52 @@ bool ctlSetLoc(const String &lat, const String &lon) {
   return true;
 }
 
+/* Adds (or updates) a saved network and makes it the one to use now; the
+   others stay saved as fallbacks. */
 bool ctlSetWifi(const String &ssid, const String &pass) {
   String s = ssid; s.trim();
-  if (!s.length()) return false;
-  cfgWifiSsid = s;
-  cfgWifiPass = pass;
-  saveConfig();
+  if (!netsUpsertFront(knownNets, numKnownNets, s.c_str(), pass.c_str())) return false;
+  saveWifiNets();                              // also mirrors entry 0 into cfgWifiSsid
   wifiRetryNow = true;                         // wifiManagerTick() reconnects on core 1
-  logLine("WiFi creds updated -> '" + cfgWifiSsid + "'");
+  logLine("WiFi creds updated -> '" + cfgWifiSsid + "' (" + String(numKnownNets) + " saved)");
   return true;
+}
+
+/* Forgetting the network in use does not disconnect: the frame stays online
+   until the link drops, then falls back to whichever saved network is left. */
+bool ctlForgetWifi(const String &ssid) {
+  if (!netsForget(knownNets, numKnownNets, ssid.c_str())) return false;
+  saveWifiNets();
+  logLine("WiFi: forgot '" + ssid + "'");
+  return true;
+}
+
+/* SSIDs only — a password never leaves the frame. */
+String ctlWifiNetsJson() {
+  JsonDocument d;
+  JsonArray a = d.to<JsonArray>();
+  String cur = WiFi.status() == WL_CONNECTED ? WiFi.SSID() : "";
+  for (uint8_t i = 0; i < numKnownNets; i++) {
+    JsonObject o = a.add<JsonObject>();
+    o["ssid"] = knownNets[i].ssid;
+    o["cur"]  = cur == knownNets[i].ssid;
+    o["fast"] = netHasBssid(knownNets[i]);   // has a remembered AP to skip the scan with
+  }
+  String out; serializeJson(d, out);
+  return out;
+}
+
+/* Quarter turns clockwise. The library's drawPixel/fillRect/h-/vline all run
+   transform() before touching the DMA buffer, so this one call rotates every
+   renderer; the panel is square, so no layout changes size. Every mode but
+   the setup QR repaints the whole frame on its next pass — the QR is static
+   and painted into both buffers once, so it has to be told to repaint. */
+void ctlSetOrient(int r) {
+  cfgOrient = (uint8_t)constrain(r, 0, 3);
+  dma->setRotation(cfgOrient);
+  qrLastText = "";
+  saveConfig();
+  logLine("orientation " + String(cfgOrient * 90) + " deg");
 }
 
 void ctlSetTg(const String &token, const String &chat) {
@@ -476,6 +513,8 @@ String ctlStatusJson() {
   if (tk.length() > 10) tk = tk.substring(0, 6) + "..." + tk.substring(tk.length() - 4);
   JsonDocument d;
   d["ssid"]     = cfgWifiSsid;
+  d["nets"]     = numKnownNets;
+  d["orient"]   = cfgOrient;
   d["chat"]     = allowedChatId;
   d["token"]    = tk;
   d["lat"]      = cfgLat;

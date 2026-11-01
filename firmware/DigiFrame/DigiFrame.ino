@@ -66,6 +66,7 @@
  *   /idle.gif       optional cute idle animation
  *********************************************************************/
 
+#include <esp_core_dump.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
@@ -164,8 +165,34 @@ void setup() {
   loadEvents();
   loadTeams();                // favourite teams for the live-score widget
   loadConfig();
+  loadWifiNets();             // after loadConfig: migrates its single ssid/pass
   loadUpdateErr();            // report a failed download once, then forget it
+  /* the log ring is RAM, so without this a crash-reboot leaves no trace at all */
+  static const char *RST[] = { "unknown", "power-on", "ext", "software", "panic",
+                               "int-wdt", "task-wdt", "wdt", "deep-sleep", "brownout", "sdio" };
+  esp_reset_reason_t rr = esp_reset_reason();
+  logLine(String("boot: reset reason ") + ((unsigned)rr < 11 ? RST[rr] : "other"));
+  /* a panic leaves its core dump in the coredump partition: report where it
+     happened (decode with addr2line against the build's .elf), then clear it */
+  if (esp_core_dump_image_check() == ESP_OK) {
+    esp_core_dump_summary_t *cs = (esp_core_dump_summary_t *)malloc(sizeof(esp_core_dump_summary_t));
+    if (cs && esp_core_dump_get_summary(cs) == ESP_OK) {
+      String bt;
+      for (uint32_t i = 0; i < cs->exc_bt_info.depth; i++) bt += " " + String(cs->exc_bt_info.bt[i], HEX);
+      logLine("crash: task '" + String(cs->exc_task) + "' pc " + String(cs->exc_pc, HEX) +
+              " cause " + String(cs->ex_info.exc_cause) + " vaddr " + String(cs->ex_info.exc_vaddr, HEX) +
+              " bt" + bt);
+    }
+    free(cs);
+    esp_core_dump_image_erase();
+  }
   dma->setBrightness8(userBrightness);
+  dma->setRotation(cfgOrient);
+  if (cfgOrient) {            // the boot greeting went up before the orientation was known
+    dma->fillScreen(0);
+    dma->setCursor(1, 12);
+    dma->print("HELLO");
+  }
 
   /* ---- wifi (falls back to hotspot + on-screen QR portal) ---- */
   if (wifiConnect(20000)) {
@@ -333,6 +360,7 @@ void loop() {
       case TGC_TEAM_DEL:   ctlDelTeam(req.strArg);                      break;
       case TGC_SET_SPORTS: ctlSetSportsJson(req.strArg);                break;
       case TGC_ESPN_CAT:   ctlSaveEspnCatalogue(req.intArg, req.strArg); break;
+      case TGC_ORIENT:     ctlSetOrient(req.intArg);                    break;
       default: break;
     }
   }

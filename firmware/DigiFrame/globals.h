@@ -38,8 +38,24 @@ UniversalTelegramBot bot(BOT_TOKEN, tgClient);
 
 /* ---- runtime config: seeded from config.h defines, overridden by
         /config.json on LittleFS (editable from the web dashboard) ---- */
-String cfgWifiSsid   = WIFI_SSID;
+String cfgWifiSsid   = WIFI_SSID;   // mirror of knownNets[0] — the network in use
 String cfgWifiPass   = WIFI_PASS;
+/* Saved networks (/wifi.json), most recently connected first. Fixed char[]
+   like cfgLat/cfgLon: the table is only touched on core 1, but the WiFi
+   event task hands it a fresh BSSID/channel through wifiLearned below. */
+struct KnownNet {
+  char    ssid[33];
+  char    pass[65];
+  uint8_t bssid[6];   // last AP associated with; all-zero = unknown
+  uint8_t ch;         // its channel; 0 = unknown (no fast reconnect)
+};
+KnownNet knownNets[WIFI_SAVED_MAX];
+uint8_t  numKnownNets = 0;
+/* Filled by the GOT_IP event (WiFi event task — NOT core 1, so it must not
+   touch LittleFS); wifiManagerTick() promotes it into knownNets and saves. */
+KnownNet      wifiLearned;
+volatile bool wifiLearnedDirty = false;
+uint8_t cfgOrient    = PANEL_ORIENT;   // panel rotation, quarter turns clockwise
 String botToken      = BOT_TOKEN;
 String allowedChatId = ALLOWED_CHAT_ID;
 /* weather location — fixed char buffers (not String) because the web
@@ -143,7 +159,9 @@ enum TgCmd { TGC_NONE, TGC_PLAY_GIF,
              /* live scores: favourite teams + widget config (JSON in strArg) */
              TGC_TEAM_ADD, TGC_TEAM_DEL, TGC_SET_SPORTS,
              /* ESPN team catalogue fetched on core 0, written on core 1 */
-             TGC_ESPN_CAT };
+             TGC_ESPN_CAT,
+             /* panel orientation (intArg = quarter turns) */
+             TGC_ORIENT };
 struct TgRequest {
   TgCmd    cmd     = TGC_NONE;
   String   strArg  = "";       // primary string (name / text / ssid / lat / token)

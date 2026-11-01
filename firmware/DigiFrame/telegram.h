@@ -21,7 +21,7 @@ void sendMainMenu(const String &chat) {
     "/msg <text> — scroll for 10 min\n"
     "/pin <text> — scroll until \xE2\x8F\xB9 Stop\n"
     "/play <name>   /del <name>\n"
-    "/brightness <1-255>\n"
+    "/brightness <1-255>   /orient 0|90|180|270\n"
     "/event add MM-DD [birthday|custom] message   /event del MM-DD\n"
     "/char every <min> (0=off)   /char del <name>\n"
     "GIF upload: http://digiframe.local",
@@ -169,6 +169,11 @@ void handleTelegram() {
         postTgCmd(TGC_BRIGHTNESS, "", (uint8_t)userBrightness);
         saveConfig();
         bot.sendMessage(m.chat_id, "Brightness set.");
+      }
+      else if (t.startsWith("/orient ")) {
+        int deg = t.substring(8).toInt();
+        if (deg % 90 || deg < 0 || deg > 270) bot.sendMessage(m.chat_id, "Use /orient 0, 90, 180 or 270.");
+        else { postTgCmd(TGC_ORIENT, "", (uint8_t)(deg / 90)); bot.sendMessage(m.chat_id, "Rotated."); }
       }
       else if (t.startsWith("/event add ")) {
         // /event add MM-DD [birthday|custom] message

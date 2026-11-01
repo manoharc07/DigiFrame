@@ -30,6 +30,15 @@
 #define AP_PASS "digiframe123" // >= 8 chars (WPA2)
 #define WIFI_FAIL_PORTAL_MIN 5 // runtime outage (min) before portal reopens
 
+/* ---- saved networks (/wifi.json, most recently connected first). The
+   frame remembers this many and joins whichever is in range. The newest
+   one also carries the BSSID + channel it last associated on, so a normal
+   boot skips the scan entirely (WIFI_FAST_MS); only if that fails does it
+   scan and try every visible saved network, strongest first. ---- */
+#define WIFI_SAVED_MAX     5
+#define WIFI_FAST_MS       5000   // budget for the no-scan fast reconnect
+#define WIFI_ROAM_AFTER_MS 30000  // runtime outage before looking for another saved network
+
 /* ---- cloud dashboard. NOT currently used by the firmware: the setup QR
    now encodes a WIFI: hotspot-join payload, because an https:// page cannot
    call this device's http:// LAN API (browser mixed-content rules). Reaching
@@ -183,6 +192,11 @@
 
 #define PANEL_W 64
 #define PANEL_H 64
+/* Default mounting orientation, in quarter turns clockwise: 0/1/2/3 =
+   0/90/180/270 degrees. Runtime-editable (`orient` in /config.json). The
+   panel is square, so every layout is unchanged by it — width()/height()
+   stay 64 whichever way up the frame hangs. */
+#define PANEL_ORIENT 0
 
 /* HUB75 colour depth (bits/channel). The DMA framebuffer is
    (PANEL_H/2) * PANEL_W * 2 bytes * depth, DOUBLED because double_buff is on

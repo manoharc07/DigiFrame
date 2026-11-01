@@ -161,7 +161,10 @@ Display`, `Adafruit GFX Library`, `AnimatedGIF`, `UniversalTelegramBot`,
 ## Setup & control
 
 On first boot, if the frame can't reach a stored WiFi it opens a hotspot and
-shows a QR code.
+shows a QR code. It remembers up to five networks and joins whichever one is in
+range, strongest first. The last one it used reconnects without a scan, so a
+normal boot is quick, and moving the frame between home and office needs no
+re-setup.
 
 ### 1. On-device dashboard (any browser, incl. iPhone)
 
@@ -174,7 +177,8 @@ is online the same dashboard lives at `http://digiframe.local`, in four tabs:
 - **Scores** — search ESPN for any team or league to follow, switch whole
   sports on and off, and set rotation, effects and refresh rate.
 - **Content** — GIF upload, random cameos, special days.
-- **Settings** — WiFi, Telegram, weather location, timezone, MQTT, firmware
+- **Settings** — saved WiFi networks, display orientation (hang the frame at
+  0/90/180/270°), Telegram, weather location, timezone, MQTT, firmware
   updates, logs.
 
 The team and league pickers search ESPN from *your browser*, not the frame — it
