@@ -361,6 +361,7 @@ void loop() {
       case TGC_SET_SPORTS: ctlSetSportsJson(req.strArg);                break;
       case TGC_ESPN_CAT:   ctlSaveEspnCatalogue(req.intArg, req.strArg); break;
       case TGC_ORIENT:     ctlSetOrient(req.intArg);                    break;
+      case TGC_TEMPUNIT:   ctlSetTempUnit(req.intArg != 0);             break;
       default: break;
     }
   }

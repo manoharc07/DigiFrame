@@ -426,6 +426,15 @@ void ctlSetOrient(int r) {
   logLine("orientation " + String(cfgOrient * 90) + " deg");
 }
 
+/* Display unit only: wTemp stays Celsius, the footer reads cfgTempF on its
+   next frame, so nothing needs refetching or repainting. */
+void ctlSetTempUnit(bool fahrenheit) {
+  if (cfgTempF == fahrenheit) return;
+  cfgTempF = fahrenheit;
+  saveConfig();
+  logLine(String("temperature unit ") + (cfgTempF ? "F" : "C"));
+}
+
 void ctlSetTg(const String &token, const String &chat) {
   String tk = token; tk.trim();
   String ch = chat;  ch.trim();
@@ -515,6 +524,7 @@ String ctlStatusJson() {
   d["ssid"]     = cfgWifiSsid;
   d["nets"]     = numKnownNets;
   d["orient"]   = cfgOrient;
+  d["tempF"]    = cfgTempF;
   d["chat"]     = allowedChatId;
   d["token"]    = tk;
   d["lat"]      = cfgLat;

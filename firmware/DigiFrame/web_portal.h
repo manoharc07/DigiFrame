@@ -66,7 +66,8 @@ button.x:hover{background:#4a2634;color:#ffb0c4}
 #wl .g{cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#wl .g:hover{color:#ffb3de}
 #wl .on{font-size:11px;color:#ff9ab8}
 button.rot{font-size:20px;line-height:1;padding:6px 12px}
-#oriv{min-width:56px;text-align:center;font-size:14px}</style>
+#oriv{min-width:56px;text-align:center;font-size:14px}
+button.tu{min-width:48px;margin-left:6px}button.tu.off{background:#23233a;color:#8a8aa8}</style>
 </head><body><h1>&#9200; DigiFrame</h1>
 <div id=strip>connecting&hellip;</div>
 <div id=updban></div>
@@ -152,7 +153,9 @@ boots or loses its connection &mdash; tap a name to update its password</div></f
 <div class=row><button class=rot onclick=rot(-1) aria-label="rotate left" title="rotate left">&#10226;</button>
 <span id=oriv>0&deg;</span>
 <button class=rot onclick=rot(1) aria-label="rotate right" title="rotate right">&#10227;</button></div>
-<div class=st>rotates everything on the panel, for a frame hung on its side</div></fieldset>
+<div class=st>rotates everything on the panel, for a frame hung on its side</div>
+<div class=row style="margin-top:10px">Temperature
+<button class=tu id=tuc onclick="setTU(0)">&deg;C</button><button class=tu id=tuf onclick="setTU(1)">&deg;F</button></div></fieldset>
 <fieldset><legend>Telegram</legend>
 <input id=tt placeholder="bot token (from @BotFather)" style="width:94%"><br>
 <input id=tc placeholder="allowed chat id" style="width:60%">
@@ -199,6 +202,8 @@ async function loadNets(){try{let j=await (await fetch('/api/wifinets')).json();
 let ORI=0;
 function showOri(){oriv.textContent=ORI*90+String.fromCharCode(176)}
 function rot(d){ORI=(ORI+d+4)%4;showOri();api('orient','v='+ORI)}
+function showTU(f){tuc.classList.toggle('off',!!f);tuf.classList.toggle('off',!f)}
+function setTU(f){showTU(f);api('tempunit','v='+(f?'f':'c'))}
 async function load(){try{let r=await fetch('/api/list'),j=await r.json();
  l.innerHTML=j.map(g=>`<li>${g} <button onclick="api('play','g=${g}')">&#9654;</button>
  <button onclick="api('del','g=${g}')">&#128465;</button></li>`).join('')}catch(e){}}
@@ -292,7 +297,7 @@ async function loadCfg(){try{let r=await fetch('/api/config'),j=await r.json();
  tc.placeholder=j.chat?('chat id: '+j.chat):'allowed chat id';
  tt.placeholder=j.token?('token: '+j.token):'bot token (from @BotFather)';
  la.placeholder='lat: '+j.lat;lo.placeholder='lon: '+j.lon;
- wst.textContent='WiFi: '+j.wifi;ORI=j.orient||0;showOri();tst.textContent='';fwv.textContent='v'+j.fw;
+ wst.textContent='WiFi: '+j.wifi;ORI=j.orient||0;showOri();showTU(j.tempF);tst.textContent='';fwv.textContent='v'+j.fw;
  mqe.checked=!!j.mqttEn;mqh.placeholder=j.mqttHost||'broker host/IP';mqp.placeholder=j.mqttPort||1883;mqu.placeholder=j.mqttUser||'username (optional)';
  spe.checked=!!j.sportEn;spsrc.value=j.sportSrc||'demo';spfx.value=j.sportFx;
  if(!sph.value)sph.value=j.sportHold;if(!sprot.value)sprot.value=j.sportRot;
@@ -981,6 +986,13 @@ void setupWeb() {
   /* ---- panel orientation, quarter turns clockwise ---- */
   web.on("/api/orient", HTTP_POST, []() {
     ctlSetOrient(web.arg("v").toInt());
+    web.send(200, "text/plain", "ok");
+  });
+  /* ---- temperature unit: v=f (Fahrenheit) or v=c (Celsius) ---- */
+  web.on("/api/tempunit", HTTP_POST, []() {
+    String v = web.arg("v"); v.toLowerCase();
+    if (v != "c" && v != "f") { web.send(400, "text/plain", "use v=c or v=f"); return; }
+    ctlSetTempUnit(v == "f");
     web.send(200, "text/plain", "ok");
   });
   /* ---- save weather location; weatherTask refetches right away ---- */

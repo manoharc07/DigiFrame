@@ -102,6 +102,7 @@ void saveConfig() {
   d["sportRot"]  = sportRotSec;
   d["sportRef"]  = sportRefreshSec;
   d["orient"]    = cfgOrient;
+  d["tempF"]     = cfgTempF;
   File f = LittleFS.open("/config.json", "w");
   serializeJson(d, f);
   f.close();
@@ -135,6 +136,7 @@ void loadConfig() {
     if (d["sportRot"].is<int>())          sportRotSec  = constrain(d["sportRot"].as<int>(), 0, 300);
     if (d["sportRef"].is<int>())          sportRefreshSec = constrain(d["sportRef"].as<int>(), 0, 300);
     if (d["orient"].is<int>())            cfgOrient    = constrain(d["orient"].as<int>(), 0, 3);
+    if (d["tempF"].is<bool>())            cfgTempF     = d["tempF"].as<bool>();
   }
   f.close();
 }

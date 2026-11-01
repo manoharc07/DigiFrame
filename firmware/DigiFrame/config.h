@@ -198,6 +198,12 @@
    stay 64 whichever way up the frame hangs. */
 #define PANEL_ORIENT 0
 
+/* Temperature unit shown on the panel, dashboard and Telegram: 0 = Celsius,
+   1 = Fahrenheit. Runtime-editable (`tempF` in /config.json). wTemp itself
+   always holds Celsius - only display converts - so the Home Assistant
+   sensor keeps reporting °C and HA applies the user's own unit system. */
+#define TEMP_FAHRENHEIT 0
+
 /* HUB75 colour depth (bits/channel). The DMA framebuffer is
    (PANEL_H/2) * PANEL_W * 2 bytes * depth, DOUBLED because double_buff is on
    — and it must live in internal DRAM, which is the scarcest resource on this

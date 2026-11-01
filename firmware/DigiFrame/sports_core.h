@@ -686,7 +686,20 @@ bool sportsPoll(LiveMatch *out, int maxN, int &n) {
 
 /**********************  7h. POLL + TASK  *****************************/
 void fetchScores() {
-  LiveMatch fresh[MAX_LIVE];
+  /* NOT a stack array. sportsTask has 8 KB, and this path is the deepest on
+     it: fetchScores -> espnPoll -> espnLiveW -> espnGet -> ArduinoJson's
+     recursive parser (NestingLimit 24) -> the socket. `fresh[MAX_LIVE]` here
+     was 1.4 KB of that, and once F1 grew sportData to 112 B the race path
+     overflowed it ("crash: task 'sports' pc ... _xt_lowint1", the canary
+     check at a context switch). PSRAM costs no internal DRAM, which is the
+     binding resource, and only this task ever touches the buffer. */
+  static LiveMatch *fresh = nullptr;
+  if (!fresh) {
+    fresh = (LiveMatch *)heap_caps_malloc(sizeof(LiveMatch) * MAX_LIVE,
+                                          MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!fresh) fresh = (LiveMatch *)malloc(sizeof(LiveMatch) * MAX_LIVE);
+    if (!fresh) return;
+  }
   int n = 0;
   if (!sportsPoll(fresh, MAX_LIVE, n)) return;
 
@@ -780,6 +793,14 @@ void sportsTask(void *pv) {
       uint32_t t0 = millis();
       fetchScores();
       sportPollMs = millis() - t0;      // what the floor actually is, measured
+      /* Report a new low-water mark of free stack, so headroom is measured
+         rather than guessed at the next time this path gets deeper. */
+      static UBaseType_t stackLow = ~0u;
+      UBaseType_t hw = uxTaskGetStackHighWaterMark(nullptr);
+      if (hw < stackLow) {
+        stackLow = hw;
+        if (hw < 2048) logLine("sports: stack headroom " + String((unsigned)hw) + " B");
+      }
     }
     vTaskDelay(pdMS_TO_TICKS(5000));       // short tick so sportsNow applies fast
   }

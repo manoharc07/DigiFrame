@@ -844,9 +844,11 @@ void renderClock() {
     dma->setCursor(2, 47);
     dma->print(buf);
     if (!isnan(wTemp)) {
-      snprintf(buf, sizeof(buf), "%dC", (int)round(wTemp));
+      snprintf(buf, sizeof(buf), "%d%c", (int)round(tempDisp(wTemp)), tempUnit());
       dma->setTextColor(C_TEMP);
-      dma->setCursor(2, 55);
+      /* "104F" / "-12C" are four glyphs: from x=2 the last one ends on column
+         24, inside the weather icon. Start those at x=0 so it ends on 22. */
+      dma->setCursor(strlen(buf) > 3 ? 0 : 2, 55);
       dma->print(buf);
     }
     drawWeatherIconAnim(24, 54, frameNo); // animated icon, clear of the date row

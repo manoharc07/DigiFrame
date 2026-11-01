@@ -56,6 +56,10 @@ uint8_t  numKnownNets = 0;
 KnownNet      wifiLearned;
 volatile bool wifiLearnedDirty = false;
 uint8_t cfgOrient    = PANEL_ORIENT;   // panel rotation, quarter turns clockwise
+bool    cfgTempF     = TEMP_FAHRENHEIT; // display temperatures in °F (wTemp stays °C)
+/* a Celsius reading in the unit the user picked */
+static inline float tempDisp(float c) { return cfgTempF ? c * 9.0f / 5.0f + 32.0f : c; }
+static inline char  tempUnit()        { return cfgTempF ? 'F' : 'C'; }
 String botToken      = BOT_TOKEN;
 String allowedChatId = ALLOWED_CHAT_ID;
 /* weather location — fixed char buffers (not String) because the web
@@ -161,7 +165,9 @@ enum TgCmd { TGC_NONE, TGC_PLAY_GIF,
              /* ESPN team catalogue fetched on core 0, written on core 1 */
              TGC_ESPN_CAT,
              /* panel orientation (intArg = quarter turns) */
-             TGC_ORIENT };
+             TGC_ORIENT,
+             /* temperature unit (intArg: 0 = C, 1 = F) */
+             TGC_TEMPUNIT };
 struct TgRequest {
   TgCmd    cmd     = TGC_NONE;
   String   strArg  = "";       // primary string (name / text / ssid / lat / token)

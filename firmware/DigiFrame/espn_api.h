@@ -1730,7 +1730,10 @@ bool espnPoll(LiveMatch *out, int maxN, int &n) {
   /* The pin goes first so it always survives the MAX_LIVE cap — the user asked
      for this one by hand, and it must not be crowded out by followed teams. */
   if (espnPinSet && n < maxN) {
-    LiveMatch m;
+    /* Built in place: out[] is fetchScores()'s PSRAM buffer. A local LiveMatch
+       here was ~350 B of sportsTask's 8 KB stack on the deepest path (see
+       fetchScores), and it overflowed. n only advances on success. */
+    LiveMatch &m = out[n];
     memset(&m, 0, sizeof(m));
     m.home.score2 = m.away.score2 = SCORE2_NONE;
     if (espnLiveW(espnPin, espnPinSport, m)) {
@@ -1753,7 +1756,7 @@ bool espnPoll(LiveMatch *out, int maxN, int &n) {
           !strcmp(sportOf(espnPinSport)->espnSport, "cricket"))
         espnCricketStrip(espnPin, m);
       m.startedAt = m.changedAt = millis();
-      out[n++] = m;
+      n++;
       any = true;
       if (m.state == MS_ENDED) espnPinSet = false;   // released; hold applies
     }
@@ -1844,7 +1847,10 @@ bool espnPoll(LiveMatch *out, int maxN, int &n) {
       }
     if (dup) continue;
 
-    LiveMatch m;
+    /* Built in place: out[] is fetchScores()'s PSRAM buffer. A local LiveMatch
+       here was ~350 B of sportsTask's 8 KB stack on the deepest path (see
+       fetchScores), and it overflowed. n only advances on success. */
+    LiveMatch &m = out[n];
     memset(&m, 0, sizeof(m));
     m.home.score2 = m.away.score2 = SCORE2_NONE;
     if (!espnLiveW(w, favTeams[i].sport, m)) continue;
@@ -1879,7 +1885,7 @@ bool espnPoll(LiveMatch *out, int maxN, int &n) {
     if (m.state == MS_ENDED) w.checkedAt = 0;
     w.lastState = m.state;      // drives the poll cadence (espnUrgency)
 
-    out[n++] = m;
+    n++;
     any = true;
   }
 

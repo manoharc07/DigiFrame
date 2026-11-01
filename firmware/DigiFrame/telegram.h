@@ -22,6 +22,7 @@ void sendMainMenu(const String &chat) {
     "/pin <text> — scroll until \xE2\x8F\xB9 Stop\n"
     "/play <name>   /del <name>\n"
     "/brightness <1-255>   /orient 0|90|180|270\n"
+    "/units c|f\n"
     "/event add MM-DD [birthday|custom] message   /event del MM-DD\n"
     "/char every <min> (0=off)   /char del <name>\n"
     "GIF upload: http://digiframe.local",
@@ -175,6 +176,12 @@ void handleTelegram() {
         if (deg % 90 || deg < 0 || deg > 270) bot.sendMessage(m.chat_id, "Use /orient 0, 90, 180 or 270.");
         else { postTgCmd(TGC_ORIENT, "", (uint8_t)(deg / 90)); bot.sendMessage(m.chat_id, "Rotated."); }
       }
+      else if (t.startsWith("/units ")) {
+        String u = t.substring(7); u.trim(); u.toLowerCase();
+        if (u == "f" || u == "fahrenheit")   { postTgCmd(TGC_TEMPUNIT, "", 1); bot.sendMessage(m.chat_id, "Temperatures in °F."); }
+        else if (u == "c" || u == "celsius") { postTgCmd(TGC_TEMPUNIT, "", 0); bot.sendMessage(m.chat_id, "Temperatures in °C."); }
+        else bot.sendMessage(m.chat_id, "Use /units c or /units f.");
+      }
       else if (t.startsWith("/event add ")) {
         // /event add MM-DD [birthday|custom] message
         String rest = t.substring(11); rest.trim();
@@ -226,7 +233,7 @@ void handleTelegram() {
         snprintf(tb, sizeof(tb), "%02d:%02d:%02d", tmNow.tm_hour, tmNow.tm_min, tmNow.tm_sec);
         String out = "Time: " + String(tb) +
                      "\nMode: " + String((int)mode) +
-                     "\nTemp: " + String(wTemp, 1) + "C (code " + String(wCode) + ")" +
+                     "\nTemp: " + String(tempDisp(wTemp), 1) + tempUnit() + " (code " + String(wCode) + ")" +
                      "\nHeap: " + String(ESP.getFreeHeap() / 1024) + " KB" +
                      "\nIP: " + WiFi.localIP().toString() +
                      "\nNext event: " + (d >= 0 ? evName + " in " + String(d) + "d" : "none");
