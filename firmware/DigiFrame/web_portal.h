@@ -59,7 +59,14 @@ button.x:hover{background:#4a2634;color:#ffb0c4}
  border-radius:8px;background:#1d2b1f;border:1px solid #2f6b3a;color:#cfedd4}
 #updban .g{flex:1;min-width:0}#updban b{color:#eaffee}
 #updban button{background:#2f9c4a;padding:6px 10px;font-size:12px;white-space:nowrap}
-#updban.warn{background:#2b1d20;border-color:#6b2f3a;color:#f0d0d6}</style>
+#updban.warn{background:#2b1d20;border-color:#6b2f3a;color:#f0d0d6}
+/* saved networks: the follows-list row, with the name as the tap target */
+#wl{border-radius:8px;background:#0e0e18}
+#wl .sp{padding:7px 8px;border-bottom:1px solid #23233a}#wl .sp:last-child{border:0}
+#wl .g{cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#wl .g:hover{color:#ffb3de}
+#wl .on{font-size:11px;color:#ff9ab8}
+button.rot{font-size:20px;line-height:1;padding:6px 12px}
+#oriv{min-width:56px;text-align:center;font-size:14px}</style>
 </head><body><h1>&#9200; DigiFrame</h1>
 <div id=strip>connecting&hellip;</div>
 <div id=updban></div>
@@ -134,10 +141,18 @@ follow kicks off, and goes back to the clock scene after the match</div></fields
 
 <div class=pane id=p4>
 <fieldset><legend>WiFi</legend>
+<ul id=wl></ul>
 <input id=ws placeholder="network name (SSID)" style="width:94%"><br>
 <input id=wp type=password placeholder="password" style="width:60%">
 <button onclick="api('wifi','s='+encodeURIComponent(ws.value)+'&p='+encodeURIComponent(wp.value))">Save &amp; connect</button>
-<div class=st id=wst></div></fieldset>
+<div class=st id=wst></div>
+<div class=st>saved networks are tried strongest first whenever the frame
+boots or loses its connection &mdash; tap a name to update its password</div></fieldset>
+<fieldset><legend>Display</legend>
+<div class=row><button class=rot onclick=rot(-1) aria-label="rotate left" title="rotate left">&#10226;</button>
+<span id=oriv>0&deg;</span>
+<button class=rot onclick=rot(1) aria-label="rotate right" title="rotate right">&#10227;</button></div>
+<div class=st>rotates everything on the panel, for a frame hung on its side</div></fieldset>
 <fieldset><legend>Telegram</legend>
 <input id=tt placeholder="bot token (from @BotFather)" style="width:94%"><br>
 <input id=tc placeholder="allowed chat id" style="width:60%">
@@ -176,7 +191,14 @@ follow kicks off, and goes back to the clock scene after the match</div></fields
 </div>
 <script>
 async function api(ep,body){await fetch('/api/'+ep,{method:'POST',
- headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body||''});load();loadLogs();loadCfg();loadEv()}
+ headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body||''});load();loadLogs();loadCfg();loadEv();loadNets()}
+async function loadNets(){try{let j=await (await fetch('/api/wifinets')).json();
+ wl.innerHTML=j.length?j.map(n=>`<li class=sp data-s="${esc(n.ssid)}"><span class=g title="update password" onclick="ws.value=this.parentNode.dataset.s;wp.focus()">${esc(n.ssid)}</span>`
+  +(n.cur?'<span class=on>&#9679; connected</span>':'')+`<button class=x onclick="api('wifidel','s='+encodeURIComponent(this.parentNode.dataset.s))" aria-label=forget title=forget>&#10005;</button></li>`).join('')
+  :'<li class="sp st">no saved networks yet</li>'}catch(e){}}
+let ORI=0;
+function showOri(){oriv.textContent=ORI*90+String.fromCharCode(176)}
+function rot(d){ORI=(ORI+d+4)%4;showOri();api('orient','v='+ORI)}
 async function load(){try{let r=await fetch('/api/list'),j=await r.json();
  l.innerHTML=j.map(g=>`<li>${g} <button onclick="api('play','g=${g}')">&#9654;</button>
  <button onclick="api('del','g=${g}')">&#128465;</button></li>`).join('')}catch(e){}}
@@ -270,7 +292,7 @@ async function loadCfg(){try{let r=await fetch('/api/config'),j=await r.json();
  tc.placeholder=j.chat?('chat id: '+j.chat):'allowed chat id';
  tt.placeholder=j.token?('token: '+j.token):'bot token (from @BotFather)';
  la.placeholder='lat: '+j.lat;lo.placeholder='lon: '+j.lon;
- wst.textContent='WiFi: '+j.wifi;tst.textContent='';fwv.textContent='v'+j.fw;
+ wst.textContent='WiFi: '+j.wifi;ORI=j.orient||0;showOri();tst.textContent='';fwv.textContent='v'+j.fw;
  mqe.checked=!!j.mqttEn;mqh.placeholder=j.mqttHost||'broker host/IP';mqp.placeholder=j.mqttPort||1883;mqu.placeholder=j.mqttUser||'username (optional)';
  spe.checked=!!j.sportEn;spsrc.value=j.sportSrc||'demo';spfx.value=j.sportFx;
  if(!sph.value)sph.value=j.sportHold;if(!sprot.value)sprot.value=j.sportRot;
@@ -538,7 +560,7 @@ async function testFx(){await fetch('/api/scoreevent',{method:'POST',
  headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'e='+encodeURIComponent(spfxt.value.split(':')[1]||'')})}
 spq.oninput=onSearch;
 async function boot(){await loadCat();await loadCfg();await loadTeams();
- load();loadLogs();loadEv();updCheck(0)}
+ load();loadLogs();loadEv();loadNets();updCheck(0)}
 boot();
 setInterval(loadLogs,2000);
 setInterval(loadCfg,5000);       // the status strip is the point of the Now tab
@@ -864,6 +886,27 @@ void setupWeb() {
       out["f0"]    = f0;
       out["f1"]    = f1;
     }
+    /* "op,op,..." replayed on a scratch table — the saved-network list
+       logic without touching the networks the frame actually uses.
+       op = +ssid (save) | -ssid (forget) | ^ssid (connected: promote) */
+    if (web.hasArg("nets")) {
+      KnownNet t[WIFI_SAVED_MAX];
+      uint8_t n = 0;
+      static const uint8_t ap[6] = {1, 2, 3, 4, 5, 6};
+      String ops = web.arg("nets") + ",";
+      for (int a = 0, b; (b = ops.indexOf(',', a)) >= 0; a = b + 1) {
+        String op = ops.substring(a, b);
+        if (op.length() < 2) continue;
+        String ss = op.substring(1);
+        if (op[0] == '+') netsUpsertFront(t, n, ss.c_str(), ("pw-" + ss).c_str());
+        if (op[0] == '-') netsForget(t, n, ss.c_str());
+        if (op[0] == '^') netsPromote(t, n, ss.c_str(), ap, 6);
+      }
+      JsonArray arr = out["nets"].to<JsonArray>();
+      for (uint8_t i = 0; i < n; i++) arr.add(t[i].ssid);
+      out["fast0"] = n ? netHasBssid(t[0]) : false;
+      out["pass0"] = n ? t[0].pass : "";
+    }
     if (web.hasArg("delta")) {                    // "sportIdx:dScore:dScore2"
       String a = web.arg("delta");
       int c1 = a.indexOf(':'), c2 = a.lastIndexOf(':');
@@ -911,6 +954,10 @@ void setupWeb() {
     web.sendHeader("X-Frame-Count", String(dma->frameCount));
     web.sendHeader("X-Panel-Size",  String(PANEL_W) + "x" + String(PANEL_H));
     web.sendHeader("X-Mode",        String((int)mode));
+    /* the shadow is in logical coordinates — the image as it reads on the
+       mounted frame, whichever way up that is — so this is information,
+       not something a client has to undo */
+    web.sendHeader("X-Panel-Orient", String(cfgOrient));
     web.send_P(200, "application/octet-stream",
                (PGM_P)dma->shadowFront, CAPTURE_BYTES);
   });
@@ -923,6 +970,18 @@ void setupWeb() {
   web.on("/api/wifi", HTTP_POST, []() {
     if (!ctlSetWifi(web.arg("s"), web.arg("p"))) { web.send(400, "text/plain", "SSID required"); return; }
     web.send(200, "text/plain", "ok — connecting to " + cfgWifiSsid);
+  });
+  web.on("/api/wifinets", HTTP_GET, []() {
+    web.send(200, "application/json", ctlWifiNetsJson());
+  });
+  web.on("/api/wifidel", HTTP_POST, []() {
+    if (!ctlForgetWifi(web.arg("s"))) { web.send(404, "text/plain", "not saved"); return; }
+    web.send(200, "text/plain", "ok");
+  });
+  /* ---- panel orientation, quarter turns clockwise ---- */
+  web.on("/api/orient", HTTP_POST, []() {
+    ctlSetOrient(web.arg("v").toInt());
+    web.send(200, "text/plain", "ok");
   });
   /* ---- save weather location; weatherTask refetches right away ---- */
   web.on("/api/loc", HTTP_POST, []() {

@@ -180,6 +180,24 @@ def test_race_event_names_fit_the_wire():
     ok(len("overtake:HAM:VER") >= 16, "which 'overtake' as a stem would not have")
 
 
+@test("parsers")
+def test_saved_networks_are_most_recent_first():
+    """The order IS the connect priority: boot fast-reconnects to entry 0
+    and only scans when that fails. Replayed on a scratch table, so this
+    never touches the networks the frame is actually using."""
+    nets = lambda ops: devtest(nets=ops)
+    eq(nets("+a,+b,+c")["nets"], ["c", "b", "a"], "newest first")
+    eq(nets("+a,+b,+a")["nets"], ["a", "b"], "re-saving moves it up, no duplicate")
+    eq(nets("+a,+b,^a")["nets"], ["a", "b"], "connecting promotes it")
+    eq(nets("+a,^a")["fast0"], True, "a connect remembers its AP")
+    eq(nets("+a")["fast0"], False, "a fresh save has no AP to skip the scan with")
+    eq(nets("+a,+b,-a")["nets"], ["b"], "forget")
+    eq(nets("+a,-zz")["nets"], ["a"], "forgetting an unknown network is a no-op")
+    eq(nets("+a,+b,+c,+d,+e,+f")["nets"], ["f", "e", "d", "c", "b"],
+       "a full table evicts the least recently used")
+    eq(nets("+a,^zz")["nets"], ["a"], "a connect to an unsaved network changes nothing")
+    eq(nets("+" + "x" * 33)["nets"], [], "an SSID over 32 bytes is refused")
+
 # ---- device API ---------------------------------------------------------
 @test("device")
 def test_core_endpoints_respond():
@@ -314,6 +332,31 @@ def test_rotation_setting_persists():
 
 
 @test("device")
+def test_screen_orientation_persists():
+    need_device()
+    was = dev_json("/api/config")["orient"]
+    try:
+        eq(dev_post("/api/orient", v=2)[0], 200, "set")
+        eq(dev_json("/api/config")["orient"], 2, "orientation stored")
+        dev_post("/api/orient", v=7)
+        eq(dev_json("/api/config")["orient"], 3, "clamped to a quarter-turn count")
+    finally:
+        dev_post("/api/orient", v=was)
+
+
+@test("device")
+def test_saved_networks_never_expose_passwords():
+    """Deliberately read-only: POSTing /api/wifi would move the frame onto a
+    network that does not exist and drop it off the LAN mid-suite."""
+    need_device()
+    nets = dev_json("/api/wifinets")
+    ok(isinstance(nets, list), "a list")
+    eq(len(nets), dev_json("/api/config")["nets"], "matches /api/config's count")
+    for n in nets:
+        eq(sorted(n), ["cur", "fast", "ssid"], f"fields of {n.get('ssid')!r}")
+    ok(any(n["cur"] for n in nets), "the network we are on is a saved one")
+
+@test("device")
 def test_catalogue_exposes_espn_sport_slugs():
     """The picker maps an ESPN search result onto a sport with these, so a new
     sport_*.h becomes searchable without editing the dashboard."""
@@ -367,6 +410,27 @@ def test_clock_block_is_drawn():
     lit = (f[0:19].sum(axis=2) > 40).sum()
     within(int(lit), 20, 800, "lit pixels in the clock block")
 
+
+@test("panel")
+def test_capture_is_logical_at_every_orientation():
+    """The shadow mirrors draw-call INPUT, before the library's transform(),
+    so a screenshot reads upright on a frame hung any way up. If a base
+    primitive ever started re-entering the virtual drawPixel after
+    transforming, physical coordinates would leak in and the clock would
+    leave rows 0-18 at 90/180/270."""
+    import time
+    need_device()
+    was = dev_json("/api/config")["orient"]
+    dev_post("/api/stop")
+    try:
+        for r in (1, 2, 3):
+            dev_post("/api/orient", v=r)
+            time.sleep(1.0)
+            f = grab()
+            lit = int((f[0:19].sum(axis=2) > 40).sum())
+            within(lit, 20, 800, f"clock block lit at {r * 90} deg")
+    finally:
+        dev_post("/api/orient", v=was)
 
 @test("panel")
 def test_scene_sprites_never_enter_the_clock_block():
