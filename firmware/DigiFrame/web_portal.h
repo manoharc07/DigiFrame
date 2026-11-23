@@ -172,9 +172,12 @@ boots or loses its connection &mdash; tap a name to update its password</div></f
 <button onclick="api('loc','la='+encodeURIComponent(la.value)+'&lo='+encodeURIComponent(lo.value))" data-t=web.save>Save</button>
 <div class=st data-t=web.loc.hint>decimal degrees, e.g. 12.97 / 77.59 &mdash; weather refreshes right away</div></fieldset>
 <fieldset><legend data-t=web.tz.legend>Time zone</legend>
-<input id=tz type=number step=0.25 placeholder="UTC offset (hours)" data-tp=web.tz.ph style="width:55%">
+<select id=tzr aria-label="time zone" onchange=tzShow() style="width:98%"></select>
+<input id=tzc placeholder="CET-1CEST,M3.5.0,M10.5.0/3" aria-label="POSIX time-zone rule" style="width:94%;display:none">
+<input id=tz type=number step=0.25 placeholder="UTC offset (hours)" data-tp=web.tz.ph style="width:55%;display:none">
 <button onclick=saveTz() data-t=web.save>Save</button>
-<div class=st data-t=web.tz.hint>e.g. 5.5 for IST, -8 for PST, 5.75 for Nepal &mdash; clock updates right away</div></fieldset>
+<div class=st id=tzst></div>
+<div class=st data-t=web.tz.hint>pick your region and summer time switches by itself &mdash; clock updates right away</div></fieldset>
 <fieldset><legend>Home Assistant (MQTT)</legend>
 <label><input type=checkbox id=mqe> <span data-t=web.mqtt.enable>enable</span></label><br>
 <input id=mqh placeholder="broker host/IP" style="width:60%">
@@ -329,7 +332,35 @@ async function loadCfg(){try{let r=await fetch('/api/config'),j=await r.json();
  sprefh.textContent=j.sportPoll?F('web.card.ref.took',(j.sportPoll/1000).toFixed(1))
                                :T('web.card.ref.hint');
  CFG=j;drawStrip(j);
- tz.placeholder='UTC'+(j.tz>=0?'+':'')+(j.tz/3600)+'h'}catch(e){strip.textContent=T('web.strip.unreachable')}}
+ tz.placeholder='UTC'+(j.tz>=0?'+':'')+(j.tz/3600)+'h';tzLoad(j)}catch(e){strip.textContent=T('web.strip.unreachable')}}
+/* ---- time zone ----
+ A region carries a POSIX rule, so the frame (newlib) switches summer time by
+ itself; "fixed offset" is the old behaviour and never changes. The labels are
+ places, not abbreviations: nobody knows whether they live in "EET". */
+const TZP=[['UTC','UTC0'],
+ ['London, Dublin, Lisbon','GMT0BST,M3.5.0/1,M10.5.0'],
+ ['Berlin, Paris, Rome, Vienna, Zurich','CET-1CEST,M3.5.0,M10.5.0/3'],
+ ['Athens, Helsinki, Kyiv','EET-2EEST,M3.5.0/3,M10.5.0/4'],
+ ['Istanbul, Moscow, Riyadh','<+03>-3'],['Dubai','<+04>-4'],
+ ['India','IST-5:30'],['Nepal','<+0545>-5:45'],
+ ['Singapore, Hong Kong, Perth','<+08>-8'],['Tokyo, Seoul','JST-9'],
+ ['Sydney, Melbourne','AEST-10AEDT,M10.1.0,M4.1.0/3'],['Brisbane','AEST-10'],
+ ['Auckland','NZST-12NZDT,M9.5.0,M4.1.0/3'],
+ ['New York, Toronto','EST5EDT,M3.2.0,M11.1.0'],['Chicago, Dallas','CST6CDT,M3.2.0,M11.1.0'],
+ ['Denver','MST7MDT,M3.2.0,M11.1.0'],['Phoenix','MST7'],
+ ['Los Angeles, Vancouver','PST8PDT,M3.2.0,M11.1.0'],['São Paulo','<-03>3']];
+let TZI=false;
+function tzShow(){tzc.style.display=tzr.value=='*'?'':'none';tz.style.display=tzr.value==''?'':'none'}
+function tzOff(s){const h=Math.floor(Math.abs(s)/3600),m=Math.round(Math.abs(s)%3600/60);
+ return (s<0?'-':'+')+h+(m?':'+String(m).padStart(2,'0'):'')}
+function tzLoad(j){
+ if(j.utcNow!=null)tzst.textContent=F('web.tz.now',tzOff(j.utcNow));
+ if(TZI)return;TZI=true;                 // never yank the picker while it is being used
+ tzr.innerHTML=TZP.map(p=>`<option value="${esc(p[1])}">${esc(p[0])}</option>`).join('')
+  +`<option value="">${esc(T('web.tz.fixed'))}</option><option value="*">${esc(T('web.tz.custom'))}</option>`;
+ const r=j.tzRule||'';
+ if(!r)tzr.value='';else if(TZP.some(p=>p[1]==r))tzr.value=r;else{tzr.value='*';tzc.value=r}
+ tzShow()}
 /* the frame's own wording of its link is English; word it from the state code */
 function wifiTxt(j){return j.wifiSt=='up'?F('web.wifi.up',j.ip):j.wifiSt=='ap'?T('web.wifi.ap')
  :j.wifiSt=='down'?T('web.wifi.down'):j.wifi}
@@ -346,7 +377,12 @@ async function addEv(){if(!ed.value)return;await fetch('/api/events',{method:'PO
 async function delEv(d){await fetch('/api/eventdel',{method:'POST',
  headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'d='+encodeURIComponent(d)});loadEv()}
 async function saveMqtt(){await api('mqtt','en='+(mqe.checked?'1':'0')+'&h='+encodeURIComponent(mqh.value)+'&p='+(mqp.value||1883)+'&u='+encodeURIComponent(mqu.value)+'&w='+encodeURIComponent(mqw.value))}
-async function saveTz(){let h=parseFloat(tz.value);if(isNaN(h))return;await api('tz','s='+Math.round(h*3600))}
+async function saveTz(){let b;
+ if(tzr.value==''){const h=tz.value===''?(CFG.tz||0)/3600:parseFloat(tz.value);if(isNaN(h))return;b='s='+Math.round(h*3600)}
+ else b='r='+encodeURIComponent(tzr.value=='*'?tzc.value.trim():tzr.value);
+ const r=await fetch('/api/tz',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:b});
+ if(!r.ok){tzst.textContent=T('web.tz.bad');return}
+ loadCfg();loadLogs()}
 /* ---- live scores ----
  Teams come from ESPN's own search, not a list baked into the firmware: the
  frame only knows six sports, but ESPN knows every club in them. The browser
@@ -1046,9 +1082,17 @@ void setupWeb() {
     if (!ctlSetLoc(web.arg("la"), web.arg("lo"))) { web.send(400, "text/plain", "bad lat/lon"); return; }
     web.send(200, "text/plain", "ok");
   });
-  /* ---- save timezone (UTC offset in seconds); re-applies immediately ---- */
+  /* ---- timezone; re-applies immediately ----
+     r=<POSIX rule>  summer time switches by itself (r= empty clears it)
+     s=<seconds>     a fixed UTC offset, which also clears any rule */
   web.on("/api/tz", HTTP_POST, []() {
-    ctlSetTz(web.arg("s").toInt());
+    if (web.hasArg("r") && web.arg("r").length()) {
+      if (!ctlSetTzRule(web.arg("r"))) { web.send(400, "text/plain", "not a POSIX TZ rule"); return; }
+    } else if (web.hasArg("s") && web.arg("s").length()) {
+      ctlSetTz(web.arg("s").toInt());
+    } else if (web.hasArg("r")) {
+      ctlSetTzRule("");
+    } else { web.send(400, "text/plain", "use r=<rule> or s=<seconds>"); return; }
     web.send(200, "text/plain", "ok");
   });
   /* ---- save Telegram config; tgTask applies the token (core 0) ---- */

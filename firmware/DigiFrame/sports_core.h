@@ -26,9 +26,7 @@
 #define MAX_FAV_TEAMS   MAX_FOLLOWS   // old name, still used by espnWatch[]
 #define SCORE2_NONE     (-1)    // "this sport has no secondary score"
 
-/* 565 packing as a compile-time constant — dma->color565() is a method and
-   cannot be used in the static tables the sport modules declare. */
-#define RGB565(r, g, b) ((uint16_t)((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3)))
+/* RGB565() — the compile-time 565 packer — lives in globals.h. */
 
 /* MS_BREAK is a pause you wait through with the score still up — half time,
    an innings break, lunch. MS_SUSPENDED is one you do not: stumps on a Test is

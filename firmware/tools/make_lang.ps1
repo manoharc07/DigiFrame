@@ -4,14 +4,23 @@
 #
 # en.json is the reference: it is language 0 (the fallback for any missing
 # key) and every other file must carry exactly its key set. panel.* values
-# must be ASCII, because the panel's built-in 5x7 font is CP437 and prints
-# UTF-8 umlauts as garbage. tests/test_lang.py checks the same rules, plus
-# matching placeholders, and that this file was regenerated.
+# may use only ASCII plus the letters textdraw.h maps onto CP437 glyphs (the
+# panel's built-in font is CP437; anything else would print as '?').
+# tests/test_lang.py checks the same rules, plus matching placeholders, and
+# that this file was regenerated.
 $ErrorActionPreference = 'Stop'
 $fw   = Split-Path $PSScriptRoot -Parent          # the firmware/ folder
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 $files = @(Get-Item (Join-Path $fw 'lang\en.json')) +
          @(Get-ChildItem (Join-Path $fw 'lang\*.json') | Where-Object Name -ne 'en.json' | Sort-Object Name)
+
+# panel.* may use ASCII plus every letter textdraw.h maps onto a CP437 glyph -
+# read from its table, so adding a letter there is the only change needed.
+$td = [System.IO.File]::ReadAllText((Join-Path $fw 'DigiFrame\textdraw.h'), $utf8)
+$panelOk = @{}
+foreach ($m in [regex]::Matches($td, '\{0x([0-9A-Fa-f]{4}), 0x[0-9A-Fa-f]{2}\}')) {
+  $panelOk[[char][Convert]::ToInt32($m.Groups[1].Value, 16)] = $true
+}
 
 $refKeys = $null
 $langs = @()
@@ -21,8 +30,12 @@ foreach ($f in $files) {
   $obj  = $text | ConvertFrom-Json
   $keys = @($obj.PSObject.Properties | ForEach-Object Name | Sort-Object)
   foreach ($p in $obj.PSObject.Properties) {
-    if ($p.Name.StartsWith('panel.') -and $p.Value -match '[^\x20-\x7E]') {
-      throw "$($f.Name): $($p.Name) is not ASCII - the panel font cannot draw it"
+    if ($p.Name.StartsWith('panel.')) {
+      foreach ($ch in $p.Value.ToCharArray()) {
+        if (([int]$ch -lt 0x20 -or [int]$ch -gt 0x7E) -and -not $panelOk.ContainsKey($ch)) {
+          throw "$($f.Name): $($p.Name) has '$ch', which the panel font cannot draw (see UTF8_TO_CP437 in textdraw.h)"
+        }
+      }
     }
   }
   if ($null -eq $refKeys) { $refKeys = $keys }

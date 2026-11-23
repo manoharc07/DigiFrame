@@ -11,8 +11,9 @@ device if broken:
     back to English, which looks like a translation nobody finished;
   * placeholders match — a German "%d" where English has "%s" is undefined
     behaviour inside trf()'s vsnprintf, not just a wrong word;
-  * panel.* is ASCII — the panel's 5x7 font is CP437 and prints UTF-8
-    umlauts as two garbage glyphs;
+  * panel.* is ASCII plus the letters textdraw.h maps onto CP437 glyphs —
+    the panel's 5x7 font is CP437, and anything outside that table prints
+    as '?';
   * lang_data.h was regenerated — the firmware embeds that file, not the
     JSON, so an edit without `make_lang.ps1` ships the old strings;
   * every key the code names exists, and every key in the table is used.
@@ -47,6 +48,12 @@ def _printf(s: str) -> list[str]:
 
 def _braces(s: str) -> list[str]:
     return sorted(re.findall(r"\{\d+\}", s))
+
+
+def _panel_letters() -> set[str]:
+    """Every non-ASCII letter textdraw.h can draw, read from its own table."""
+    td = (FW_DIR / "textdraw.h").read_text(encoding="utf-8")
+    return {chr(int(h, 16)) for h in re.findall(r"\{0x([0-9A-Fa-f]{4}), 0x[0-9A-Fa-f]{2}\}", td)}
 
 
 def _sources() -> str:
@@ -99,13 +106,15 @@ def test_placeholders_match_english():
 
 
 @test("lang")
-def test_panel_strings_are_ascii_and_fit():
+def test_panel_strings_are_drawable_and_fit():
     t = _tables()
+    letters = _panel_letters()
+    ok("ä" in letters and "ß" in letters, "textdraw.h maps the German letters")
     for code, tab in t.items():
         for k, v in tab.items():
             if k.startswith("panel."):
-                ok(all(0x20 <= ord(c) < 0x7F for c in v),
-                   f"{code}:{k} must be ASCII for the panel font: {v!r}")
+                bad = [c for c in v if not (0x20 <= ord(c) < 0x7F or c in letters)]
+                ok(not bad, f"{code}:{k} has {bad}, which the panel font cannot draw")
         # the footer date sits at x=2 and the plant starts at x=41: six 6px glyphs
         dows = [tab[f"panel.dow.{i}"] for i in range(7)]
         widest = max(dows, key=len)

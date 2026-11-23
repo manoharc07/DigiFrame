@@ -269,12 +269,11 @@ static uint16_t espnColor(const char *hex, uint16_t fallback) {
 /* "2026-08-21T19:00Z" -> epoch seconds. ESPN always emits UTC with a Z. */
 static uint32_t espnParseUtc(const char *iso) {
   if (!iso || strlen(iso) < 17) return 0;
-  struct tm t = {};
-  if (sscanf(iso, "%4d-%2d-%2dT%2d:%2d", &t.tm_year, &t.tm_mon, &t.tm_mday,
-             &t.tm_hour, &t.tm_min) != 5) return 0;
-  t.tm_year -= 1900; t.tm_mon -= 1;
-  time_t v = mktime(&t);                      // mktime is local; correct it
-  return (v == (time_t)-1) ? 0 : (uint32_t)(v - tzOffsetSec);
+  int y, mo, d, h, mi;
+  if (sscanf(iso, "%4d-%2d-%2dT%2d:%2d", &y, &mo, &d, &h, &mi) != 5) return 0;
+  /* utcEpoch, not mktime() minus tzOffsetSec: mktime is LOCAL time, so that
+     was an hour off for half the year once a summer-time rule is in force. */
+  return (uint32_t)utcEpoch(y, mo, d, h, mi, 0);
 }
 
 /* ESPN state string -> MatchState */

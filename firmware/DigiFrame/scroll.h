@@ -13,24 +13,19 @@ static uint32_t scrollAccum = 0;           // sub-pixel remainder, 1/256 px
 bool renderScroll(uint16_t color) {        // returns true if a new frame was drawn
   if (!frameDue) return false;             // paced by the shared frame clock
   dma->fillScreen(0);
-  dma->setTextWrap(false);
-  dma->setTextSize(2);
-  dma->setTextColor(color);
-  dma->setCursor(scrollX, 25);
-  dma->print(scrollText);
+  drawText(scrollX, 25, scrollText, 2, color);   // UTF-8: umlauts + emoji
   drawSpark(4, 54, C_ACCENT);
   drawSpark(53, 54, C_ACCENT);
   scrollAccum += (SCROLL_PX_PER_SEC * FRAME_MS * 256UL) / 1000UL;
   scrollX     -= (int)(scrollAccum >> 8);
   scrollAccum &= 0xFF;
-  // Measure exact rendered width once per text change using getTextBounds,
-  // so the loop point is pixel-perfect regardless of string content.
+  // Measure once per text change. textWidth() walks the same UTF-8 layout
+  // drawText() does: getTextBounds() counted bytes, so every umlaut and
+  // emoji made the loop point late by a glyph or three.
   static String lastMeasured = "";
   static int    measuredW    = 0;
   if (scrollText != lastMeasured) {
-    int16_t x1, y1; uint16_t tw, th;
-    dma->getTextBounds(scrollText, 0, 0, &x1, &y1, &tw, &th);
-    measuredW    = (int)tw;
+    measuredW    = textWidth(scrollText, 2);
     lastMeasured = scrollText;
   }
   if (scrollX < -measuredW) scrollX = PANEL_W;
