@@ -178,8 +178,9 @@ is online the same dashboard lives at `http://digiframe.local`, in four tabs:
   sports on and off, and set rotation, effects and refresh rate.
 - **Content** — GIF upload, random cameos, special days.
 - **Settings** — saved WiFi networks, display orientation (hang the frame at
-  0/90/180/270°), Telegram, weather location, timezone, MQTT, firmware
-  updates, logs.
+  0/90/180/270°), °C/°F, 12- or 24-hour clock, language (English or
+  German — panel, dashboard and Telegram), Telegram, weather location,
+  timezone, MQTT, firmware updates, logs.
 
 The team and league pickers search ESPN from *your browser*, not the frame — it
 has neither the memory to hold a league list nor a reason to. The update check

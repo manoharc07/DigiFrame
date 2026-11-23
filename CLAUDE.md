@@ -37,14 +37,14 @@ There are no linters or CI. Verification is a clean arduino-cli compile plus `py
 
 ## Runtime configuration
 
-Compile-time **defaults** live in `config.h` (WiFi SSID/pass, `BOT_TOKEN`, `ALLOWED_CHAT_ID`, timezone, location, brightness, hotspot `AP_SSID`/`AP_PASS`, `CLOUD_SITE_URL` for the setup QR, and `MQTT_*` for Home Assistant — all placeholders, no personal data). At runtime they are overridden by `/config.json` on LittleFS (keys `ssid`, `pass`, `tgToken`, `tgChat`, `bright`, `charMin`, `lat`, `lon`, `tz`, `mqttEn`, `mqttHost`, `mqttPort`, `mqttUser`, `mqttPass`, `sportEn`, `sportSrc`, `sportHold`, `sportFx`, `sportOn`, `sportRot`, `orient`, `tempF`), editable from the web dashboard and (for some) Telegram. Weather lat/lon live in fixed `char` buffers (`cfgLat`/`cfgLon`), not `String`, because core 1 writes them while `weatherTask` (core 0) reads. **Saved WiFi networks** persist in `/wifi.json` as `[{s,p,b,c}]` = ssid/pass/BSSID (12 hex chars, `""` if unknown)/channel, **most recently connected first**, at most `WIFI_SAVED_MAX` (5); entry 0 is mirrored into `cfgWifiSsid`/`cfgWifiPass` and still written to `config.json` as `ssid`/`pass`, so an older firmware keeps connecting. With no `/wifi.json` yet, `loadWifiNets()` seeds it from that single pair. `orient` is the panel rotation in quarter turns clockwise (0-3). `tempF` is display-only: `wTemp` always holds Celsius and `tempDisp()` converts at each place it is shown, so the Home Assistant sensor keeps reporting °C. **Special days** persist separately in `/events.json` as `{d,t,m}` = date/type/message (type = `custom`|`birthday`); no default events are seeded. **Follows** for the live-score widget persist in `/teams.json` as `{i,n,a,s,e,l,k}` = id/name/abbr/sport-index/ESPN-team-id/ESPN-league/kind (`k`: 0 = team, 1 = whole league; absent reads as team, so older files load unchanged). No defaults. Ids are only unique *within* a sport ("eng" is both a cricket and a rugby side), so anything addressing a follow from outside uses `"sportKey/id"`. An empty `e` means catalogue-only (demo feed works, the live provider skips it). `l` is not optional decoration: the ESPN team endpoint answers **200 with an empty `nextEvent[]`** for a team looked up under the wrong league, so a favourite stored without its own league is discovered against the sport module's default and silently never appears. **Favourite sports** are not a third kind — there are exactly `NUM_SPORTS` of them, so they are the `sportOn` bitmask in `/config.json` (all-ones default) alongside `sportRot`, the seconds each live match holds the panel before the next takes a turn (0 = no rotation). **Note:** any `BOT_TOKEN`/`WIFI_PASS`/`MQTT_PASS` you compile in are sensitive — the shipped defaults are placeholders, keep them that way in commits.
+Compile-time **defaults** live in `config.h` (WiFi SSID/pass, `BOT_TOKEN`, `ALLOWED_CHAT_ID`, timezone, location, brightness, hotspot `AP_SSID`/`AP_PASS`, `CLOUD_SITE_URL` for the setup QR, and `MQTT_*` for Home Assistant — all placeholders, no personal data). At runtime they are overridden by `/config.json` on LittleFS (keys `ssid`, `pass`, `tgToken`, `tgChat`, `bright`, `charMin`, `lat`, `lon`, `tz`, `mqttEn`, `mqttHost`, `mqttPort`, `mqttUser`, `mqttPass`, `sportEn`, `sportSrc`, `sportHold`, `sportFx`, `sportOn`, `sportRot`, `orient`, `tempF`, `h24`, `lang`), editable from the web dashboard and (for some) Telegram. Weather lat/lon live in fixed `char` buffers (`cfgLat`/`cfgLon`), not `String`, because core 1 writes them while `weatherTask` (core 0) reads. **Saved WiFi networks** persist in `/wifi.json` as `[{s,p,b,c}]` = ssid/pass/BSSID (12 hex chars, `""` if unknown)/channel, **most recently connected first**, at most `WIFI_SAVED_MAX` (5); entry 0 is mirrored into `cfgWifiSsid`/`cfgWifiPass` and still written to `config.json` as `ssid`/`pass`, so an older firmware keeps connecting. With no `/wifi.json` yet, `loadWifiNets()` seeds it from that single pair. `orient` is the panel rotation in quarter turns clockwise (0-3). `tempF` is display-only: `wTemp` always holds Celsius and `tempDisp()` converts at each place it is shown, so the Home Assistant sensor keeps reporting °C. `h24` switches the clock face to 24-hour (leading zero, no AM/PM). `lang` is the UI language **code** (`"en"`, `"de"`), not an index, so adding a language never remaps a saved choice; an unknown code falls back to English. **Special days** persist separately in `/events.json` as `{d,t,m}` = date/type/message (type = `custom`|`birthday`); no default events are seeded. **Follows** for the live-score widget persist in `/teams.json` as `{i,n,a,s,e,l,k}` = id/name/abbr/sport-index/ESPN-team-id/ESPN-league/kind (`k`: 0 = team, 1 = whole league; absent reads as team, so older files load unchanged). No defaults. Ids are only unique *within* a sport ("eng" is both a cricket and a rugby side), so anything addressing a follow from outside uses `"sportKey/id"`. An empty `e` means catalogue-only (demo feed works, the live provider skips it). `l` is not optional decoration: the ESPN team endpoint answers **200 with an empty `nextEvent[]`** for a team looked up under the wrong league, so a favourite stored without its own league is discovered against the sport module's default and silently never appears. **Favourite sports** are not a third kind — there are exactly `NUM_SPORTS` of them, so they are the `sportOn` bitmask in `/config.json` (all-ones default) alongside `sportRot`, the seconds each live match holds the panel before the next takes a turn (0 = no rotation). **Note:** any `BOT_TOKEN`/`WIFI_PASS`/`MQTT_PASS` you compile in are sensitive — the shipped defaults are placeholders, keep them that way in commits.
 
 ## Architecture
 
 Single translation unit: `DigiFrame.ino` includes ordered `.h` files (order matters — later headers may call earlier ones; forward decls for `handleTelegram()`/`fetchWeather()` sit in `globals.h`). The actual include order in `DigiFrame.ino` is:
 
 ```
-config → globals → gif_player → events_store → sports_core → weather → scene
+config → globals → i18n → gif_player → events_store → sports_core → weather → scene
        → score_gfx → score_fx → sports_registry → espn_api → score_widget
        → scroll → party → updater → control → telegram → web_portal → mqtt_ha → qr_display → wifi_manager
 ```
@@ -64,6 +64,8 @@ Preserve this order when adding a new header — e.g. anything using the DMA pan
 | `build_opt.h` | `-D` flags the ESP32 core passes to **every** translation unit, including the panel library's own `.cpp`s. Currently just `PIXEL_COLOR_DEPTH_BITS`, which **must** be kept equal to `PANEL_COLOR_DEPTH` in `config.h` — the library picks its CIE luminance LUT from this macro at compile time while the framebuffer depth is set at runtime, and a mismatch silently corrupts mid-tone colours. |
 | `globals.h` | globals, runtime config strings, TgCmd queue, `logLine`, `tgTask`/`weatherTask`, colors |
 | `gif_player.h` | GIF decode callbacks, `openGif`/`closeGif`, character pack, `seedDefaultGifs` |
+| `i18n.h` | **UI strings by key**: `tr("panel.dow.1")`, `trf()` (printf), `trIn()`, `trMatchesAny()` — see "Localisation" below |
+| `lang_data.h` | auto-generated from `firmware/lang/*.json` (do not edit — run `firmware/tools/make_lang.ps1`) |
 | `default_gifs.h` | auto-generated embedded default GIF pack (do not edit — run `firmware/tools/make_default_gifs.ps1`) |
 | `events_store.h` | `/events.json` special days + `/config.json` persisted config + `/wifi.json` saved networks (`netsUpsertFront`/`netsForget`/`netsPromote` are pure over a passed table so `/api/devtest?nets=` can exercise them) |
 | `sports_core.h` | **live scores, data layer** (no drawing): `LiveMatch`/`Side`/`EventKind`/`SportModule`, `/teams.json` favourites store, the provider seam `sportsPoll()`, `sportsTask` (core 0), event diffing + the 4-slot priority event ring, and `sportsTick()` (core 1) which drives the `SUB_SCORE` sub-mode |
@@ -80,7 +82,7 @@ Preserve this order when adding a new header — e.g. anything using the DMA pan
 | `party.h` | **celebration** (special-day) mode + `/test` mode: `startCelebration(type,message)`/`runCelebration()`; visual by type (`birthday`→cake+confetti, `custom`→fireworks) then a scrolling message banner |
 | `control.h` | **shared control layer**: one `ctl*` function per action (msg, brightness, play/del/upload GIF, interval, celebrate/stop, wifi, loc, tg, tgtest, add/del/list special days, MQTT config, status/list/logs JSON). HTTP handlers, Telegram and MQTT all call these — they run on core 1. |
 | `telegram.h` | bot commands, reply keyboard, inline keyboards, callback queries |
-| `web_portal.h` | dashboard HTML + `/api/*` handlers (thin wrappers over `control.h`) + OTA + captive-portal redirect (endpoints: `GET /`, `GET /api/logs`, `GET /api/list`, `GET /api/config`, `POST /api/msg`, `/api/brightness`, `/api/play`, `/api/del`, `/api/interval`, `/api/celebrate`, `/api/stop`, `/api/events`, `/api/eventdel`, `/api/upload`, `/api/tgtest`, `/api/wifi`, `/api/tgconfig`, `/api/loc`, `/api/mqtt`, `/api/ota`, `/api/update`, `/api/wifinets`, `/api/wifidel`, `/api/orient`, `/api/tempunit`, and for live scores `GET /api/catalogue`, `GET|POST /api/teams`, `/api/teamdel`, `/api/espnfollow`, `/api/espnteams`, `/api/espnrefresh`, `/api/leaguefollow`, `/api/sportsel`, `/api/pin`, `/api/unpin`, `/api/sports`, `/api/scorepreview`, `/api/scoreevent`). The team picker runs **in the browser** — see "Picking teams" below |
+| `web_portal.h` | dashboard HTML + `/api/*` handlers (thin wrappers over `control.h`) + OTA + captive-portal redirect (endpoints: `GET /`, `GET /api/logs`, `GET /api/list`, `GET /api/config`, `POST /api/msg`, `/api/brightness`, `/api/play`, `/api/del`, `/api/interval`, `/api/celebrate`, `/api/stop`, `/api/events`, `/api/eventdel`, `/api/upload`, `/api/tgtest`, `/api/wifi`, `/api/tgconfig`, `/api/loc`, `/api/mqtt`, `/api/ota`, `/api/update`, `/api/wifinets`, `/api/wifidel`, `/api/orient`, `/api/tempunit`, `/api/clock`, `/api/lang`, `GET /api/i18n`, and for live scores `GET /api/catalogue`, `GET|POST /api/teams`, `/api/teamdel`, `/api/espnfollow`, `/api/espnteams`, `/api/espnrefresh`, `/api/leaguefollow`, `/api/sportsel`, `/api/pin`, `/api/unpin`, `/api/sports`, `/api/scorepreview`, `/api/scoreevent`). The team picker runs **in the browser** — see "Picking teams" below |
 | `mqtt_ha.h` | optional **Home Assistant integration over MQTT** (`PubSubClient`, `mqttTask` on core 0): MQTT discovery for brightness/message/celebrate/stop + temperature/mode sensors; commands `postTgCmd()` to core 1. Off unless enabled + a broker host is set. |
 | `qr_display.h` | `renderSetupQR()` — QR on the panel in `MODE_SETUP` (encodes `CLOUD_SITE_URL/#d=<bleName>`) |
 | `wifi_manager.h` | `wifiConnect`, `startPortal`/`stopPortal`, `wifiManagerTick` |
@@ -159,6 +161,40 @@ halves are pinned by `tests/test_update.py`.
   already has.
 
 - **Logging:** `logLine()` → mutex-guarded ring buffer (`logBuf`, 40 lines) shown on the dashboard, mirrored to Serial.
+
+### Localisation (`i18n.h`, `firmware/lang/*.json`)
+
+Every user-visible string on the panel, in Telegram and on the dashboard is
+looked up by a dotted key. `firmware/lang/en.json` is the reference and
+language 0; each other file carries exactly its key set. The firmware embeds
+`lang_data.h`, not the JSON — **run `firmware/tools/make_lang.ps1` after editing
+`lang/`**, and `python tests/run.py --only lang` catches a forgotten run.
+Adding a language is one JSON file plus that script.
+
+- **All languages are parsed once at boot into PSRAM and never freed.** A
+  switch is a one-byte write to `cfgLang`, so `tr()` is lock-free on both
+  cores (tgTask formats replies on core 0). Loading only the active table would
+  trade a few KB of PSRAM for a load/swap race.
+- **Fallback is active → English → the key itself**, so a missing key shows
+  up on screen instead of blank.
+- **Three placeholder conventions by namespace.** `panel.*` and `tg.*` are
+  printf formats (`trf()`); `web.*` use `{0}`/`{1}`, filled by the page's
+  `F()`. Translations must keep the same placeholders in the same order —
+  a mismatched `%d` is undefined behaviour inside `vsnprintf`, not a typo.
+- **`panel.*` must be ASCII.** The built-in font is CP437 and prints UTF-8
+  umlauts as two garbage glyphs; the generator refuses them. Width is the
+  caller's problem and the test pins the tight ones (footer date ≤ 6 glyphs,
+  AM/PM ≤ 2, the update screen ≤ 10).
+- **Telegram reply-keyboard taps are matched in every language**
+  (`trMatchesAny`): a keyboard sent before a switch stays on the phone.
+  Slash-command names stay English.
+- **The dashboard keeps its English inline** and swaps text on elements marked
+  `data-t` (text) / `data-tp` (placeholder) from `GET /api/i18n`, which returns
+  every `web.*` key already resolved with the fallback applied. The page and
+  the panel share one language setting.
+- **Not translated yet:** sport event punch words and labels (`sport_*.h` are
+  pixel-budgeted to 5 characters and need per-language layout checks),
+  `logLine()` output, Home Assistant entity names, and user-entered messages.
 
 ### WiFi / setup-portal flow
 

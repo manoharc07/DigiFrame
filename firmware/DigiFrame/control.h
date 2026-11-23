@@ -435,6 +435,56 @@ void ctlSetTempUnit(bool fahrenheit) {
   logLine(String("temperature unit ") + (cfgTempF ? "F" : "C"));
 }
 
+/* Display only, like the temperature unit: renderClock() reads cfg24h on its
+   next frame. */
+void ctlSet24h(bool h24) {
+  if (cfg24h == h24) return;
+  cfg24h = h24;
+  saveConfig();
+  logLine(String("clock ") + (cfg24h ? "24h" : "12h"));
+}
+
+/* Every table is already resident (i18n.h), so this is a one-byte write that
+   both cores see on their next tr(). Returns false for an unknown index. */
+bool ctlSetLang(int idx) {
+  if (idx < 0 || idx >= LANG_COUNT) return false;
+  if (cfgLang == idx) return true;
+  cfgLang = (uint8_t)idx;
+  saveConfig();
+  logLine(String("language ") + LANG_CODES[idx]);
+  return true;
+}
+
+/* The dashboard's string table: every web.* key, resolved to the active
+   language with the English fallback already applied, so the page needs one
+   fetch and no fallback logic of its own. Built by hand rather than through a
+   JsonDocument — it is a flat map, and this keeps the copy count to one. */
+String ctlI18nJson() {
+  String out;
+  out.reserve(12288);
+  out += "{\"lang\":\"";
+  out += LANG_CODES[cfgLang];
+  out += "\"";
+  for (uint16_t i = 0; i < trN[0]; i++) {
+    const char *k = trTab[0][i].k;
+    if (strncmp(k, "web.", 4)) continue;
+    out += ",\"";
+    out += k;
+    out += "\":\"";
+    for (const char *p = tr(k); *p; p++) {
+      char c = *p;
+      if      (c == '"')  out += "\\\"";
+      else if (c == '\\') out += "\\\\";
+      else if (c == '\n') out += "\\n";
+      else if ((uint8_t)c < 0x20) { char e[8]; snprintf(e, sizeof(e), "\\u%04x", c); out += e; }
+      else out += c;
+    }
+    out += "\"";
+  }
+  out += "}";
+  return out;
+}
+
 void ctlSetTg(const String &token, const String &chat) {
   String tk = token; tk.trim();
   String ch = chat;  ch.trim();
@@ -525,6 +575,19 @@ String ctlStatusJson() {
   d["nets"]     = numKnownNets;
   d["orient"]   = cfgOrient;
   d["tempF"]    = cfgTempF;
+  d["h24"]      = cfg24h;
+  d["lang"]     = LANG_CODES[cfgLang];
+  {
+    /* every compiled-in language with its own name for itself ("Deutsch"),
+       so the picker reads correctly whichever language is active */
+    JsonArray ls = d["langs"].to<JsonArray>();
+    for (uint8_t l = 0; l < LANG_COUNT; l++) {
+      JsonObject o = ls.add<JsonObject>();
+      o["c"] = LANG_CODES[l];
+      const char *nm = trIn(l, "lang.name");
+      o["n"] = nm ? nm : LANG_CODES[l];
+    }
+  }
   d["chat"]     = allowedChatId;
   d["token"]    = tk;
   d["lat"]      = cfgLat;
@@ -547,6 +610,8 @@ String ctlStatusJson() {
                     ? "connected, IP " + WiFi.localIP().toString()
                     : String(portalActive ? "hotspot mode — enter your WiFi above"
                                           : "disconnected");
+  /* the same state as a code, so the dashboard can word it in its own language */
+  d["wifiSt"]   = (WiFi.status() == WL_CONNECTED) ? "up" : (portalActive ? "ap" : "down");
   d["mqttEn"]   = mqttEnable;
   d["mqttHost"] = mqttHost;
   d["mqttPort"] = mqttPort;

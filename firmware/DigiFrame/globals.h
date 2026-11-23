@@ -60,6 +60,7 @@ bool    cfgTempF     = TEMP_FAHRENHEIT; // display temperatures in °F (wTemp st
 /* a Celsius reading in the unit the user picked */
 static inline float tempDisp(float c) { return cfgTempF ? c * 9.0f / 5.0f + 32.0f : c; }
 static inline char  tempUnit()        { return cfgTempF ? 'F' : 'C'; }
+bool    cfg24h       = CLOCK_24H;      // 24-hour clock face (no AM/PM)
 String botToken      = BOT_TOKEN;
 String allowedChatId = ALLOWED_CHAT_ID;
 /* weather location — fixed char buffers (not String) because the web
@@ -167,7 +168,11 @@ enum TgCmd { TGC_NONE, TGC_PLAY_GIF,
              /* panel orientation (intArg = quarter turns) */
              TGC_ORIENT,
              /* temperature unit (intArg: 0 = C, 1 = F) */
-             TGC_TEMPUNIT };
+             TGC_TEMPUNIT,
+             /* clock format (intArg: 0 = 12h, 1 = 24h) */
+             TGC_CLOCK24,
+             /* UI language (intArg: index into LANG_CODES) */
+             TGC_LANG };
 struct TgRequest {
   TgCmd    cmd     = TGC_NONE;
   String   strArg  = "";       // primary string (name / text / ssid / lat / token)

@@ -41,7 +41,7 @@ void otaScreen(const String &line) {
     dma->setTextSize(1);
     dma->setTextColor(C_MSG);
     dma->setCursor(2, 20);
-    dma->print("UPDATING");
+    dma->print(tr("panel.updating"));
     dma->setTextColor(C_TEMP);
     dma->setCursor(2, 34);
     dma->print(line);

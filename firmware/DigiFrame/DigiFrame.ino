@@ -83,6 +83,7 @@
 #include "config.h"
 #include "capture.h"          // dev tool: panel screenshot shadow (must precede globals.h)
 #include "globals.h"
+#include "i18n.h"             // UI strings by key: tr("panel.dow.1")
 #include "gif_player.h"
 #include "events_store.h"
 #include "sports_core.h"      // live scores: model, favourites store, poll task
@@ -127,6 +128,7 @@ static void heapReport(const char *where) {
 void setup() {
   Serial.begin(115200);
   delay(300);
+  i18nInit();                      // string tables -> PSRAM, before anything draws
 
   /* ---- matrix ---- */
   HUB75_I2S_CFG::i2s_pins pins = { R1_PIN, G1_PIN, B1_PIN, R2_PIN, G2_PIN,
@@ -153,7 +155,7 @@ void setup() {
   dma->setTextSize(1);
   dma->setTextColor(C_TIME);
   dma->setCursor(1, 12);
-  dma->print("HELLO");
+  dma->print(tr("panel.hello"));
 
   /* ---- filesystem + persisted config (may override WiFi/TG creds) ----
      NB: the fatflash partition scheme labels the data partition "ffat"
@@ -188,10 +190,10 @@ void setup() {
   }
   dma->setBrightness8(userBrightness);
   dma->setRotation(cfgOrient);
-  if (cfgOrient) {            // the boot greeting went up before the orientation was known
+  if (cfgOrient || cfgLang) { // the greeting went up before orientation/language were known
     dma->fillScreen(0);
     dma->setCursor(1, 12);
-    dma->print("HELLO");
+    dma->print(tr("panel.hello"));
   }
 
   /* ---- wifi (falls back to hotspot + on-screen QR portal) ---- */
@@ -362,6 +364,8 @@ void loop() {
       case TGC_ESPN_CAT:   ctlSaveEspnCatalogue(req.intArg, req.strArg); break;
       case TGC_ORIENT:     ctlSetOrient(req.intArg);                    break;
       case TGC_TEMPUNIT:   ctlSetTempUnit(req.intArg != 0);             break;
+      case TGC_CLOCK24:    ctlSet24h(req.intArg != 0);                  break;
+      case TGC_LANG:       ctlSetLang(req.intArg);                      break;
       default: break;
     }
   }

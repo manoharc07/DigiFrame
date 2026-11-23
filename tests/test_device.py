@@ -345,6 +345,43 @@ def test_screen_orientation_persists():
 
 
 @test("device")
+def test_clock_format_persists():
+    need_device()
+    was = dev_json("/api/config")["h24"]
+    try:
+        eq(dev_post("/api/clock", v=24)[0], 200, "set 24h")
+        eq(dev_json("/api/config")["h24"], True, "24h stored")
+        eq(dev_post("/api/clock", v=12)[0], 200, "set 12h")
+        eq(dev_json("/api/config")["h24"], False, "12h stored")
+        eq(dev_post("/api/clock", v=13)[0], 400, "only 12 or 24")
+    finally:
+        dev_post("/api/clock", v=24 if was else 12)
+
+
+@test("device")
+def test_language_switches_the_dashboard_strings():
+    need_device()
+    cfg = dev_json("/api/config")
+    was = cfg["lang"]
+    codes = [l["c"] for l in cfg["langs"]]
+    contains(codes, "en", "English compiled in")
+    contains(codes, "de", "German compiled in")
+    try:
+        eq(dev_post("/api/lang", v="de")[0], 200, "set de")
+        eq(dev_json("/api/config")["lang"], "de", "de stored")
+        de = dev_json("/api/i18n")
+        eq(de["lang"], "de", "i18n follows the active language")
+        eq(de["web.tab.now"], "Jetzt", "German strings served")
+        ok(not any(k.startswith(("tg.", "panel.")) for k in de), "only web.* keys reach the page")
+        eq(dev_post("/api/lang", v="xx")[0], 400, "unknown code refused")
+        eq(dev_json("/api/config")["lang"], "de", "a refused code changes nothing")
+        dev_post("/api/lang", v="en")
+        eq(dev_json("/api/i18n")["web.tab.now"], "Now", "English strings served")
+    finally:
+        dev_post("/api/lang", v=was)
+
+
+@test("device")
 def test_saved_networks_never_expose_passwords():
     """Deliberately read-only: POSTing /api/wifi would move the frame onto a
     network that does not exist and drop it off the LAN mid-suite."""
