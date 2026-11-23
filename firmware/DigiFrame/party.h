@@ -28,7 +28,7 @@ void startCelebration(const String &type, const String &message) {
   celebMsg     = message;
   if (!celebMsg.length())                           // default banner per type
     celebMsg = tr(celebType == "birthday" ? "panel.celeb.birthday" : "panel.celeb.custom");
-  celebMsg.toUpperCase();
+  celebMsg = utf8ToUpper(celebMsg);
   celebPhase   = 0;
   celebPhaseAt = millis();
   dma->setBrightness8(CELEBRATE_BRIGHTNESS);

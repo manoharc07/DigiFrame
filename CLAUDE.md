@@ -37,14 +37,14 @@ There are no linters or CI. Verification is a clean arduino-cli compile plus `py
 
 ## Runtime configuration
 
-Compile-time **defaults** live in `config.h` (WiFi SSID/pass, `BOT_TOKEN`, `ALLOWED_CHAT_ID`, timezone, location, brightness, hotspot `AP_SSID`/`AP_PASS`, `CLOUD_SITE_URL` for the setup QR, and `MQTT_*` for Home Assistant — all placeholders, no personal data). At runtime they are overridden by `/config.json` on LittleFS (keys `ssid`, `pass`, `tgToken`, `tgChat`, `bright`, `charMin`, `lat`, `lon`, `tz`, `mqttEn`, `mqttHost`, `mqttPort`, `mqttUser`, `mqttPass`, `sportEn`, `sportSrc`, `sportHold`, `sportFx`, `sportOn`, `sportRot`, `orient`, `tempF`, `h24`, `lang`), editable from the web dashboard and (for some) Telegram. Weather lat/lon live in fixed `char` buffers (`cfgLat`/`cfgLon`), not `String`, because core 1 writes them while `weatherTask` (core 0) reads. **Saved WiFi networks** persist in `/wifi.json` as `[{s,p,b,c}]` = ssid/pass/BSSID (12 hex chars, `""` if unknown)/channel, **most recently connected first**, at most `WIFI_SAVED_MAX` (5); entry 0 is mirrored into `cfgWifiSsid`/`cfgWifiPass` and still written to `config.json` as `ssid`/`pass`, so an older firmware keeps connecting. With no `/wifi.json` yet, `loadWifiNets()` seeds it from that single pair. `orient` is the panel rotation in quarter turns clockwise (0-3). `tempF` is display-only: `wTemp` always holds Celsius and `tempDisp()` converts at each place it is shown, so the Home Assistant sensor keeps reporting °C. `h24` switches the clock face to 24-hour (leading zero, no AM/PM). `lang` is the UI language **code** (`"en"`, `"de"`), not an index, so adding a language never remaps a saved choice; an unknown code falls back to English. **Special days** persist separately in `/events.json` as `{d,t,m}` = date/type/message (type = `custom`|`birthday`); no default events are seeded. **Follows** for the live-score widget persist in `/teams.json` as `{i,n,a,s,e,l,k}` = id/name/abbr/sport-index/ESPN-team-id/ESPN-league/kind (`k`: 0 = team, 1 = whole league; absent reads as team, so older files load unchanged). No defaults. Ids are only unique *within* a sport ("eng" is both a cricket and a rugby side), so anything addressing a follow from outside uses `"sportKey/id"`. An empty `e` means catalogue-only (demo feed works, the live provider skips it). `l` is not optional decoration: the ESPN team endpoint answers **200 with an empty `nextEvent[]`** for a team looked up under the wrong league, so a favourite stored without its own league is discovered against the sport module's default and silently never appears. **Favourite sports** are not a third kind — there are exactly `NUM_SPORTS` of them, so they are the `sportOn` bitmask in `/config.json` (all-ones default) alongside `sportRot`, the seconds each live match holds the panel before the next takes a turn (0 = no rotation). **Note:** any `BOT_TOKEN`/`WIFI_PASS`/`MQTT_PASS` you compile in are sensitive — the shipped defaults are placeholders, keep them that way in commits.
+Compile-time **defaults** live in `config.h` (WiFi SSID/pass, `BOT_TOKEN`, `ALLOWED_CHAT_ID`, timezone, location, brightness, hotspot `AP_SSID`/`AP_PASS`, `CLOUD_SITE_URL` for the setup QR, and `MQTT_*` for Home Assistant — all placeholders, no personal data). At runtime they are overridden by `/config.json` on LittleFS (keys `ssid`, `pass`, `tgToken`, `tgChat`, `bright`, `charMin`, `lat`, `lon`, `tz`, `mqttEn`, `mqttHost`, `mqttPort`, `mqttUser`, `mqttPass`, `sportEn`, `sportSrc`, `sportHold`, `sportFx`, `sportOn`, `sportRot`, `orient`, `tempF`, `h24`, `lang`, `tzRule`), editable from the web dashboard and (for some) Telegram. Weather lat/lon live in fixed `char` buffers (`cfgLat`/`cfgLon`), not `String`, because core 1 writes them while `weatherTask` (core 0) reads. **Saved WiFi networks** persist in `/wifi.json` as `[{s,p,b,c}]` = ssid/pass/BSSID (12 hex chars, `""` if unknown)/channel, **most recently connected first**, at most `WIFI_SAVED_MAX` (5); entry 0 is mirrored into `cfgWifiSsid`/`cfgWifiPass` and still written to `config.json` as `ssid`/`pass`, so an older firmware keeps connecting. With no `/wifi.json` yet, `loadWifiNets()` seeds it from that single pair. `orient` is the panel rotation in quarter turns clockwise (0-3). `tempF` is display-only: `wTemp` always holds Celsius and `tempDisp()` converts at each place it is shown, so the Home Assistant sensor keeps reporting °C. `h24` switches the clock face to 24-hour (leading zero, no AM/PM). `lang` is the UI language **code** (`"en"`, `"de"`), not an index, so adding a language never remaps a saved choice; an unknown code falls back to English. **Special days** persist separately in `/events.json` as `{d,t,m}` = date/type/message (type = `custom`|`birthday`); no default events are seeded. **Follows** for the live-score widget persist in `/teams.json` as `{i,n,a,s,e,l,k}` = id/name/abbr/sport-index/ESPN-team-id/ESPN-league/kind (`k`: 0 = team, 1 = whole league; absent reads as team, so older files load unchanged). No defaults. Ids are only unique *within* a sport ("eng" is both a cricket and a rugby side), so anything addressing a follow from outside uses `"sportKey/id"`. An empty `e` means catalogue-only (demo feed works, the live provider skips it). `l` is not optional decoration: the ESPN team endpoint answers **200 with an empty `nextEvent[]`** for a team looked up under the wrong league, so a favourite stored without its own league is discovered against the sport module's default and silently never appears. **Favourite sports** are not a third kind — there are exactly `NUM_SPORTS` of them, so they are the `sportOn` bitmask in `/config.json` (all-ones default) alongside `sportRot`, the seconds each live match holds the panel before the next takes a turn (0 = no rotation). **Note:** any `BOT_TOKEN`/`WIFI_PASS`/`MQTT_PASS` you compile in are sensitive — the shipped defaults are placeholders, keep them that way in commits.
 
 ## Architecture
 
 Single translation unit: `DigiFrame.ino` includes ordered `.h` files (order matters — later headers may call earlier ones; forward decls for `handleTelegram()`/`fetchWeather()` sit in `globals.h`). The actual include order in `DigiFrame.ino` is:
 
 ```
-config → globals → i18n → gif_player → events_store → sports_core → weather → scene
+config → globals → i18n → textdraw → gif_player → events_store → sports_core → weather → scene
        → score_gfx → score_fx → sports_registry → espn_api → score_widget
        → scroll → party → updater → control → telegram → web_portal → mqtt_ha → qr_display → wifi_manager
 ```
@@ -64,6 +64,7 @@ Preserve this order when adding a new header — e.g. anything using the DMA pan
 | `build_opt.h` | `-D` flags the ESP32 core passes to **every** translation unit, including the panel library's own `.cpp`s. Currently just `PIXEL_COLOR_DEPTH_BITS`, which **must** be kept equal to `PANEL_COLOR_DEPTH` in `config.h` — the library picks its CIE luminance LUT from this macro at compile time while the framebuffer depth is set at runtime, and a mismatch silently corrupts mid-tone colours. |
 | `globals.h` | globals, runtime config strings, TgCmd queue, `logLine`, `tgTask`/`weatherTask`, colors |
 | `gif_player.h` | GIF decode callbacks, `openGif`/`closeGif`, character pack, `seedDefaultGifs` |
+| `textdraw.h` | **UTF-8 text on the panel**: `drawText()` / `textWidth()` / `utf8ToUpper()` — accented letters onto CP437 glyphs, 8×8 emoji, see "Panel text" below |
 | `i18n.h` | **UI strings by key**: `tr("panel.dow.1")`, `trf()` (printf), `trIn()`, `trMatchesAny()` — see "Localisation" below |
 | `lang_data.h` | auto-generated from `firmware/lang/*.json` (do not edit — run `firmware/tools/make_lang.ps1`) |
 | `default_gifs.h` | auto-generated embedded default GIF pack (do not edit — run `firmware/tools/make_default_gifs.ps1`) |
@@ -181,10 +182,11 @@ Adding a language is one JSON file plus that script.
   printf formats (`trf()`); `web.*` use `{0}`/`{1}`, filled by the page's
   `F()`. Translations must keep the same placeholders in the same order —
   a mismatched `%d` is undefined behaviour inside `vsnprintf`, not a typo.
-- **`panel.*` must be ASCII.** The built-in font is CP437 and prints UTF-8
-  umlauts as two garbage glyphs; the generator refuses them. Width is the
-  caller's problem and the test pins the tight ones (footer date ≤ 6 glyphs,
-  AM/PM ≤ 2, the update screen ≤ 10).
+- **`panel.*` may use ASCII plus the letters `textdraw.h` can draw** (its
+  `UTF8_TO_CP437` table — the generator and `test_lang.py` both read the
+  allowed set from there), and must be drawn through `drawText()`, never
+  `print()`. Width is the caller's problem and the test pins the tight ones
+  (footer date ≤ 6 glyphs, AM/PM ≤ 2, the update screen ≤ 10).
 - **Telegram reply-keyboard taps are matched in every language**
   (`trMatchesAny`): a keyboard sent before a switch stays on the phone.
   Slash-command names stay English.
@@ -195,6 +197,31 @@ Adding a language is one JSON file plus that script.
 - **Not translated yet:** sport event punch words and labels (`sport_*.h` are
   pixel-budgeted to 5 characters and need per-language layout checks),
   `logLine()` output, Home Assistant entity names, and user-entered messages.
+
+### Panel text (`textdraw.h`)
+
+The only font is the built-in 5×7, which is **CP437**: one byte per glyph,
+and it already contains Ä Ö Ü ä ö ü ß é ç ñ °. UTF-8 spells those as two
+bytes, so `print()` drew two garbage glyphs. `drawText()` decodes UTF-8 and
+draws ASCII as before, accented letters as their CP437 glyph, a known emoji as
+an 8×8 bitmap scaled with the text size, modifiers (FE0F, ZWJ, skin tones) as
+nothing, and anything else as `?` — visibly missing rather than silently
+swallowed. Rules worth keeping:
+
+- **`dma->cp437(true)` is set once in `setup()` and must stay.** Without it
+  Adafruit GFX shifts every glyph from 176 up by one (a backward-compatibility
+  quirk), so ß (0xE1) and ° (0xF8) came out as their neighbours.
+- **Measure with `textWidth()`, not `getTextBounds()`.** The latter counts
+  bytes, so every umlaut or emoji moved the scroller's loop point.
+- **Upper-case with `utf8ToUpper()`, not `String::toUpperCase()`.** It raises
+  a letter only where CP437 has the capital (Ä Ö Ü Å Æ Ç É Ñ); "è" stays "è"
+  rather than becoming an "È" the font cannot draw.
+- **Emoji are drawn for the panel, not downsampled** — one character per
+  pixel in the source, nothing pure black (an unlit LED). `test_text.py`
+  checks every letter mapping against Python's own cp437 codec and every
+  bitmap's shape and palette use.
+- Single line only: a newline is laid out as a space. Multiline paging is a
+  separate feature.
 
 ### WiFi / setup-portal flow
 
@@ -226,6 +253,8 @@ The intended replacement is an **outbound relay** — the frame connects out to 
 - **Night mode** is applied every second in `loop()` and is intentionally **skipped during `MODE_CELEBRATE` and `MODE_SETUP`** (QR must stay scannable).
 - **Auto-celebration trigger** compares `todayMMDD()` to `lastCelebDate` and, on a match, runs `startCelebration(day.type, day.message)`; skipped while `portalActive`. Manual `/celebrate` (and the HA celebrate) deliberately does **not** set `lastCelebDate` — preserve this distinction so a manual preview isn't force-ended at date rollover.
 - **GIF playback:** `gifIsUserPlay` distinguishes user plays (loop forever) from ambient cameos (play once). On decode error, close and fall back to `MODE_CLOCK`.
+- **GIF disposal 2 clears the PREVIOUS frame's rectangle, to black.** AnimatedGIF reports each frame's method and leaves honouring it to `GIFDraw()`: `gifFrameStart()` (first line of each frame) clears the rect a disposal-2 frame left behind. Transparent pixels always keep what is underneath. Two wrong versions came before: painting `pal[ucBackground]` into the current frame's transparent pixels (that entry is white in many GIFs — the white halo) and painting them black (holes punched through earlier frames). Neither cleared the previous frame, so moving sprites left trails.
+- **Time zone = a POSIX rule or a fixed offset.** `cfgTzRule` (e.g. `CET-1CEST,M3.5.0,M10.5.0/3`) goes to `configTzTime()` and newlib switches summer time by itself; empty falls back to `tzOffsetSec`. `applyTimezone()` is the one place that applies either. Never convert a UTC timestamp with `mktime()` minus `tzOffsetSec` — `mktime()` is local time and that is an hour off for half the year under a rule; use `utcEpoch()` (globals.h), which ignores TZ entirely. `/api/config` reports `utcNow`, the offset in force right now.
 - **`SUB_SCORE` is a sub-mode of `MODE_CLOCK`, not a mode.** `renderClock()` always draws the clock block in rows 0-18; only rows 19-63 branch — ambient scene + footer, or the live-score card. Keep it that way: the clock must never disappear, and every other mode (`MSG`/`GIF`/`CELEBRATE`/`TEST`/`SETUP`) keeps working untouched. `sportsTick()` owns the switch and returns early during `MODE_TEST` so `/test` can drive the card itself. On leaving the card it sets `sceneNeedsReset` so the ambient scene restarts instead of resuming a sprite mid-walk.
 
 ### Seeing the UI (dev tooling)

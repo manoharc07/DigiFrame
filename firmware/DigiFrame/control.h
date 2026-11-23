@@ -13,8 +13,7 @@
  * openGif / saveConfig, none of which are safe from a core-0 task. */
 
 void ctlSendMsg(const String &text, bool pin) {
-  scrollText = text;
-  scrollText.toUpperCase();
+  scrollText = utf8ToUpper(text);    // keeps umlauts/emoji intact (textdraw.h)
   scrollX = PANEL_W;
   closeGif();
   mode      = MODE_MSG;
@@ -494,11 +493,39 @@ void ctlSetTg(const String &token, const String &chat) {
   logLine("Telegram config updated (chat_id=" + allowedChatId + ")");
 }
 
+/* A fixed UTC offset — choosing one also drops any summer-time rule, so
+   "fixed offset" means exactly that. */
 void ctlSetTz(int seconds) {
-  tzOffsetSec = constrain(seconds, -12 * 3600, 14 * 3600);
-  configTime(tzOffsetSec, 0, "pool.ntp.org", "time.google.com");  // re-apply offset live
+  tzOffsetSec  = constrain(seconds, -12 * 3600, 14 * 3600);
+  cfgTzRule[0] = ' ';
+  applyTimezone();                                    // re-applies live
   saveConfig();
   logLine("timezone set: UTC" + String(tzOffsetSec >= 0 ? "+" : "") + String(tzOffsetSec / 3600.0, 2) + "h");
+}
+
+/* A POSIX TZ rule such as "CET-1CEST,M3.5.0,M10.5.0/3" — summer time then
+   switches on its own. Only the shape is checked here (newlib silently
+   treats a rule it cannot parse as UTC, so it must at least LOOK like one):
+   a name of 3+ letters or a <quoted> name, an offset, and nothing outside
+   the POSIX alphabet. "" falls back to the fixed offset. */
+bool ctlSetTzRule(const String &rule) {
+  String r = rule; r.trim();
+  if (r.length() >= sizeof(cfgTzRule)) return false;
+  if (r.length()) {
+    for (size_t i = 0; i < r.length(); i++) {
+      char c = r[i];
+      if (!isalnum((unsigned char)c) && !strchr("+-:,./<>", c)) return false;
+    }
+    size_t n = 0;
+    if (r[0] == '<') { n = r.indexOf('>'); if ((int)n < 2) return false; n++; }
+    else { while (n < r.length() && isalpha((unsigned char)r[n])) n++; if (n < 3) return false; }
+    if (n >= r.length() || !(isdigit((unsigned char)r[n]) || r[n] == '+' || r[n] == '-')) return false;
+  }
+  strlcpy(cfgTzRule, r.c_str(), sizeof(cfgTzRule));
+  applyTimezone();
+  saveConfig();
+  logLine(cfgTzRule[0] ? "timezone rule: " + String(cfgTzRule) : String("timezone rule cleared"));
+  return true;
 }
 
 void ctlTgTest() {
@@ -593,6 +620,8 @@ String ctlStatusJson() {
   d["lat"]      = cfgLat;
   d["lon"]      = cfgLon;
   d["tz"]       = tzOffsetSec;
+  d["tzRule"]   = cfgTzRule;
+  d["utcNow"]   = currentUtcOffsetSec();   // summer time included
   d["bright"]   = userBrightness;
   d["interval"] = charEveryMs / 60000UL;
   d["mode"]     = (int)mode;

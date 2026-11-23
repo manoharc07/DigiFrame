@@ -5,6 +5,7 @@ python tests/run.py                 # everything
 python tests/run.py --only espn     # ESPN contract only — no device needed
 python tests/run.py --only update   # GitHub update contract — no device needed
 python tests/run.py --only lang     # UI string tables — no device needed
+python tests/run.py --only text     # UTF-8 panel text tables — no device needed
 python tests/run.py --host 192.168.1.50 -v
 python tests/run.py --list
 ```
@@ -24,6 +25,7 @@ have all been at the boundaries.
 | `espn` | internet | the assumptions `espn_api.h` is built on |
 | `update` | internet | the GitHub CORS policy the one-click update rests on |
 | `lang` | nothing | `firmware/lang/*.json`: same keys, matching placeholders, ASCII panel strings, `lang_data.h` regenerated, no unknown or unused keys |
+| `text` | nothing | `textdraw.h`: accented-letter map matches the real CP437 code page; emoji bitmaps are 8×8, use only their palette, are reachable |
 | `parsers` | device | the provider's pure functions, via `GET /api/devtest` |
 | `device` | device | the HTTP API every front end depends on |
 | `panel` | device + numpy | what the LEDs are actually showing |

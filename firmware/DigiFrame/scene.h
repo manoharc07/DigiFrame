@@ -817,9 +817,7 @@ void renderClock() {
   dma->print(msb);
   dma->setTextSize(1);
   if (!h24) {
-    dma->setTextColor(C_DATE);
-    dma->setCursor(xoff + hw + COLON_W + MIN_W + gap, 10);
-    dma->print(tr(pm ? "panel.pm" : "panel.am"));
+    drawText(xoff + hw + COLON_W + MIN_W + gap, 10, tr(pm ? "panel.pm" : "panel.am"), 1, C_DATE);
   }
 
   /* --- seconds comet: a soft trail grows across beneath the time,
@@ -850,9 +848,7 @@ void renderClock() {
     char dowKey[16];
     snprintf(dowKey, sizeof(dowKey), "panel.dow.%d", tmNow.tm_wday % 7);
     snprintf(buf, sizeof(buf), tr("panel.date"), tr(dowKey), tmNow.tm_mday);
-    dma->setTextColor(C_DATE);
-    dma->setCursor(2, 47);
-    dma->print(buf);
+    drawText(2, 47, buf, 1, C_DATE);
     if (!isnan(wTemp)) {
       snprintf(buf, sizeof(buf), "%d%c", (int)round(tempDisp(wTemp)), tempUnit());
       dma->setTextColor(C_TEMP);

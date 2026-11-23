@@ -51,6 +51,8 @@ themed celebrations on your special days. Configure and control it from the
   upload your own. Any `c_*.gif` joins a "character pack" that makes random
   cameos.
 - **Messages** — scroll a note for a while, or pin one until you stop it.
+  Umlauts and accents (Ä Ö Ü ß é ñ …) and a set of emoji (❤ ☀ ☁ ⭐ 🌙 🎂 🎉
+  😀 😂 👍 ⚠ ⚽ ✔ 🔥) are drawn on the panel.
 - **Live sports scores** — follow teams *or* whole leagues across cricket,
   football, basketball, American football, ice hockey and rugby. When something
   you follow kicks off, the lower two-thirds of the clock face becomes a score
@@ -180,7 +182,8 @@ is online the same dashboard lives at `http://digiframe.local`, in four tabs:
 - **Settings** — saved WiFi networks, display orientation (hang the frame at
   0/90/180/270°), °C/°F, 12- or 24-hour clock, language (English or
   German — panel, dashboard and Telegram), Telegram, weather location,
-  timezone, MQTT, firmware updates, logs.
+  time zone (pick a region and summer time switches by itself), MQTT,
+  firmware updates, logs.
 
 The team and league pickers search ESPN from *your browser*, not the frame — it
 has neither the memory to hold a league list nor a reason to. The update check

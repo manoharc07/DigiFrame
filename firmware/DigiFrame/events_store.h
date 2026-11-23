@@ -89,6 +89,7 @@ void saveConfig() {
   d["lat"]     = cfgLat;
   d["lon"]     = cfgLon;
   d["tz"]      = tzOffsetSec;
+  d["tzRule"]  = cfgTzRule;
   d["mqttEn"]   = mqttEnable;
   d["mqttHost"] = mqttHost;
   d["mqttPort"] = mqttPort;
@@ -123,6 +124,8 @@ void loadConfig() {
     if (d["lat"].is<const char*>()) strlcpy(cfgLat, d["lat"], sizeof(cfgLat));
     if (d["lon"].is<const char*>()) strlcpy(cfgLon, d["lon"], sizeof(cfgLon));
     if (d["tz"].is<int>())               tzOffsetSec = d["tz"].as<int>();
+    /* absent in files written before summer-time rules: stay on the fixed offset */
+    if (d["tzRule"].is<const char*>())   strlcpy(cfgTzRule, d["tzRule"], sizeof(cfgTzRule));
     if (d["mqttEn"].is<bool>())          mqttEnable = d["mqttEn"].as<bool>();
     if (d["mqttHost"].is<const char*>()) mqttHost   = d["mqttHost"].as<String>();
     if (d["mqttPort"].is<int>())         mqttPort   = d["mqttPort"].as<int>();

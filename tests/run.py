@@ -6,6 +6,7 @@ Sanity suite for DigiFrame.
     python tests/run.py --only espn     # ESPN contract only (no device needed)
     python tests/run.py --only update   # GitHub update contract (no device needed)
     python tests/run.py --only lang     # UI string tables (no device needed)
+    python tests/run.py --only text     # UTF-8 panel text tables (no device needed)
     python tests/run.py --only parsers  # firmware parsers, via /api/devtest
     python tests/run.py --host 192.168.1.50 -v
 
@@ -21,6 +22,7 @@ import test_espn          # noqa: E402,F401  (registers via @test)
 import test_device        # noqa: E402,F401
 import test_update        # noqa: E402,F401
 import test_lang          # noqa: E402,F401
+import test_text          # noqa: E402,F401
 
 if __name__ == "__main__":
     sys.exit(harness.main())

@@ -69,6 +69,39 @@ String allowedChatId = ALLOWED_CHAT_ID;
 char cfgLat[16]      = LATITUDE;
 char cfgLon[16]      = LONGITUDE;
 int  tzOffsetSec     = TZ_OFFSET_SEC;   // UTC offset in seconds (runtime-configurable)
+/* POSIX TZ rule; "" = use tzOffsetSec. Written only on core 1 (setup and
+   ctlSetTzRule), and a fixed buffer for the same reason cfgLat is. */
+char cfgTzRule[48]   = TZ_RULE;
+
+/* Point the C library's local time at the configured zone and (re)start
+   SNTP. A rule gets newlib's DST handling for free — localtime_r() then
+   switches between winter and summer time on its own. */
+void applyTimezone() {
+  if (cfgTzRule[0]) configTzTime(cfgTzRule, "pool.ntp.org", "time.google.com");
+  else              configTime(tzOffsetSec, 0, "pool.ntp.org", "time.google.com");
+}
+
+/* Civil UTC date/time -> epoch seconds, without touching the TZ setting
+   (timegm() is not in newlib, and mktime() is LOCAL time). Howard Hinnant's
+   days-from-civil; valid for any proleptic Gregorian date. */
+static int64_t utcEpoch(int y, int mon, int d, int h, int mi, int s) {
+  y -= mon <= 2;
+  const int era = (y >= 0 ? y : y - 399) / 400;
+  const unsigned yoe = (unsigned)(y - era * 400);
+  const unsigned doy = (153 * (mon + (mon > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+  const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  int64_t days = (int64_t)era * 146097 + (int64_t)doe - 719468;
+  return days * 86400 + h * 3600 + mi * 60 + s;
+}
+
+/* The offset in force RIGHT NOW, summer time included, in seconds. */
+int currentUtcOffsetSec() {
+  time_t now = time(nullptr);
+  struct tm lt;
+  localtime_r(&now, &lt);
+  return (int)(utcEpoch(lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday,
+                        lt.tm_hour, lt.tm_min, lt.tm_sec) - (int64_t)now);
+}
 /* ---- Home Assistant / MQTT (off by default; editable at runtime) ---- */
 bool   mqttEnable = MQTT_ENABLE;
 String mqttHost   = MQTT_HOST;
@@ -360,6 +393,9 @@ void weatherTask(void *pv) {
 }
 
 /**********************  4. COLORS  ***********************************/
+/* 565 packing as a compile-time constant — dma->color565() is a method and
+   cannot be used in the static tables the sport modules declare. */
+#define RGB565(r, g, b) ((uint16_t)((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3)))
 #define C_TIME   dma->color565(255, 179, 222)   // pastel pink
 #define C_TEMP   dma->color565(173, 216, 255)   // pastel blue
 #define C_DATE   dma->color565(200, 190, 255)   // lavender

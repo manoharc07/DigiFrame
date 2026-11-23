@@ -359,6 +359,37 @@ def test_clock_format_persists():
 
 
 @test("device")
+def test_timezone_rules_apply_and_fall_back():
+    """A POSIX rule must reach newlib (the offset in force moves) and a fixed
+    offset must clear it. utcNow is computed on the frame from localtime_r()
+    through utcEpoch(), so this also exercises the conversion the ESPN
+    kickoff times now rely on."""
+    need_device()
+    cfg = dev_json("/api/config")
+    was_rule, was_off = cfg.get("tzRule", ""), cfg["tz"]
+    try:
+        for rule, off in (("UTC0", 0), ("<+04>-4", 14400), ("IST-5:30", 19800),
+                          ("EST5", -18000), ("<+0545>-5:45", 20700)):
+            eq(dev_post("/api/tz", r=rule)[0], 200, f"set {rule}")
+            j = dev_json("/api/config")
+            eq(j["tzRule"], rule, f"{rule} stored")
+            eq(j["utcNow"], off, f"{rule} in force")
+        eq(dev_post("/api/tz", r="CET-1CEST,M3.5.0,M10.5.0/3")[0], 200, "set CET/CEST")
+        contains([3600, 7200], dev_json("/api/config")["utcNow"], "CET or CEST in force")
+        eq(dev_post("/api/tz", r="hello world")[0], 400, "malformed rule refused")
+        eq(dev_post("/api/tz", r="X1")[0], 400, "a two-letter name is refused")
+        eq(dev_post("/api/tz", s=-12600)[0], 200, "fixed offset")
+        j = dev_json("/api/config")
+        eq(j["tzRule"], "", "a fixed offset clears the rule")
+        eq(j["utcNow"], -12600, "fixed offset in force")
+    finally:
+        if was_rule:
+            dev_post("/api/tz", r=was_rule)
+        else:
+            dev_post("/api/tz", s=was_off)
+
+
+@test("device")
 def test_language_switches_the_dashboard_strings():
     need_device()
     cfg = dev_json("/api/config")

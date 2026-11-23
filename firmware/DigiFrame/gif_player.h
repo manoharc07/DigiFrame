@@ -48,23 +48,51 @@ static bool  gifNeedsScale = false;
  * allocation to fail (PSRAM may be unavailable / too fragmented). */
 static uint16_t gifCanvas[PANEL_W * PANEL_H];
 
+/* Disposal 2 ("restore to background") is a promise about what happens
+ * AFTER a frame is shown: its rectangle is cleared before the NEXT frame
+ * draws. AnimatedGIF reports each frame's method but leaves honouring it to
+ * us, so the rectangle of a disposal-2 frame is remembered here (already in
+ * panel coordinates) and cleared on the first line of the frame after it.
+ *
+ * The background is BLACK, the panel's own, and never the GIF's background
+ * palette entry: that entry is white in a great many GIFs, and painting it
+ * was the white halo around every sprite exported with transparency. Before
+ * this, disposal 2 instead turned the CURRENT frame's transparent pixels
+ * into that colour — which both drew the halo and never cleared the previous
+ * frame, so a moving sprite left a trail of copies behind it. */
+static bool    gifClearPending = false;
+static int16_t gifClrX0, gifClrY0, gifClrX1, gifClrY1;   // half-open, panel px
+
+static void gifFrameStart(const GIFDRAW *pDraw) {
+  if (gifClearPending) {
+    for (int y = gifClrY0; y < gifClrY1; y++)
+      for (int x = gifClrX0; x < gifClrX1; x++) gifCanvas[y * PANEL_W + x] = 0;
+  }
+  gifClearPending = (pDraw->ucDisposalMethod == 2);
+  if (!gifClearPending) return;
+  int x0 = pDraw->iX, x1 = pDraw->iX + pDraw->iWidth;
+  int y0 = pDraw->iY, y1 = pDraw->iY + pDraw->iHeight;
+  if (gifNeedsScale) {                    // same mapping the pixels use, rounded outward
+    x0 = (int)(x0 / gifScaleX); x1 = (int)ceilf(x1 / gifScaleX);
+    y0 = (int)(y0 / gifScaleY); y1 = (int)ceilf(y1 / gifScaleY);
+  }
+  gifClrX0 = constrain(gifOffX + x0, 0, PANEL_W); gifClrX1 = constrain(gifOffX + x1, 0, PANEL_W);
+  gifClrY0 = constrain(gifOffY + y0, 0, PANEL_H); gifClrY1 = constrain(gifOffY + y1, 0, PANEL_H);
+}
+
 /* Decode one GIF scan line straight into the panel-space canvas, applying
  * the centering offset and (if needed) downscale as we go. Transparent
- * pixels keep whatever the previous frame left there — that's how
- * incremental GIF frames composite; disposal method 2 clears to background. */
+ * pixels keep whatever is underneath — that's how incremental GIF frames
+ * composite. */
 void GIFDraw(GIFDRAW *pDraw) {
+  if (pDraw->y == 0) gifFrameStart(pDraw);        // lines arrive top-down
   uint16_t *pal = pDraw->pPalette;
   int srcY = pDraw->iY + pDraw->y;                // source (GIF canvas) row
   int w    = pDraw->iWidth;
   uint8_t *s = pDraw->pPixels;                    // s[x] maps to source x = iX + x
 
-  if (pDraw->ucDisposalMethod == 2) {             // restore-to-background
-    for (int x = 0; x < w; x++)
-      if (s[x] == pDraw->ucTransparent) s[x] = pDraw->ucBackground;
-    pDraw->ucHasTransparency = 0;
-  }
-  bool    hasT = pDraw->ucHasTransparency;
-  uint8_t tr   = pDraw->ucTransparent;
+  bool    hasT  = pDraw->ucHasTransparency;
+  uint8_t tr    = pDraw->ucTransparent;
 
   int py = gifNeedsScale ? gifOffY + (int)(srcY / gifScaleY)
                          : gifOffY + srcY;
@@ -73,11 +101,12 @@ void GIFDraw(GIFDRAW *pDraw) {
 
   for (int x = 0; x < w; x++) {
     uint8_t c = s[x];
-    if (hasT && c == tr) continue;                // leave prior pixel in place
     int srcX = pDraw->iX + x;
     int px = gifNeedsScale ? gifOffX + (int)(srcX / gifScaleX)
                            : gifOffX + srcX;
-    if (px >= 0 && px < PANEL_W) dst[px] = pal[c];
+    if (px < 0 || px >= PANEL_W) continue;
+    if (hasT && c == tr) continue;                // leave what is underneath
+    dst[px] = pal[c];
   }
 }
 
@@ -128,6 +157,7 @@ bool openGif(const String &path, bool userPlay = false) {
 
     // Fresh panel-space canvas for this GIF
     memset(gifCanvas, 0, sizeof(gifCanvas));
+    gifClearPending = false;          // a disposal from the last GIF is not ours
 
     // Compute centering + scale-to-fit geometry
     int cw = gif.getCanvasWidth();

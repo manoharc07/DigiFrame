@@ -39,9 +39,7 @@ void otaScreen(const String &line) {
   for (int b = 0; b < 2; b++) {          // paint both DMA buffers
     dma->fillScreen(0);
     dma->setTextSize(1);
-    dma->setTextColor(C_MSG);
-    dma->setCursor(2, 20);
-    dma->print(tr("panel.updating"));
+    drawText(2, 20, tr("panel.updating"), 1, C_MSG);
     dma->setTextColor(C_TEMP);
     dma->setCursor(2, 34);
     dma->print(line);

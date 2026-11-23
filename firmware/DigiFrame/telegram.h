@@ -124,7 +124,7 @@ void handleTelegram() {
 
       /* ---- commands ---- */
       if (t.startsWith("/msg ") || t.startsWith("/pin ")) {
-        String txt = t.substring(5); txt.toUpperCase();
+        String txt = utf8ToUpper(t.substring(5));
         postTgCmd(t.startsWith("/msg ") ? TGC_MSG : TGC_PIN, txt);
         bot.sendMessage(m.chat_id, tr("tg.msg.ok"));
       }

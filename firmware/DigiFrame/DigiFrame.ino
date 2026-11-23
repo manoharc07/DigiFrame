@@ -84,6 +84,7 @@
 #include "capture.h"          // dev tool: panel screenshot shadow (must precede globals.h)
 #include "globals.h"
 #include "i18n.h"             // UI strings by key: tr("panel.dow.1")
+#include "textdraw.h"         // UTF-8 text: umlauts/accents + emoji (drawText)
 #include "gif_player.h"
 #include "events_store.h"
 #include "sports_core.h"      // live scores: model, favourites store, poll task
@@ -143,6 +144,7 @@ void setup() {
   cfg.min_refresh_rate = PANEL_MIN_REFRESH;
   dma = new CapturePanel(cfg);     // MatrixPanel_I2S_DMA + screenshot tee (capture.h)
   dma->begin();
+  dma->cp437(true);                // true CP437 glyph indices — textdraw.h needs them
   // What the library actually achieved: below PANEL_MIN_REFRESH it will have
   // spent colour depth to get there, and a low number here is exactly what
   // low-brightness shimmer looks like on the panel.
@@ -153,9 +155,7 @@ void setup() {
   dma->setBrightness8(DAY_BRIGHTNESS);
   dma->fillScreen(0);
   dma->setTextSize(1);
-  dma->setTextColor(C_TIME);
-  dma->setCursor(1, 12);
-  dma->print(tr("panel.hello"));
+  drawText(1, 12, tr("panel.hello"), 1, C_TIME);
 
   /* ---- filesystem + persisted config (may override WiFi/TG creds) ----
      NB: the fatflash partition scheme labels the data partition "ffat"
@@ -192,8 +192,7 @@ void setup() {
   dma->setRotation(cfgOrient);
   if (cfgOrient || cfgLang) { // the greeting went up before orientation/language were known
     dma->fillScreen(0);
-    dma->setCursor(1, 12);
-    dma->print(tr("panel.hello"));
+    drawText(1, 12, tr("panel.hello"), 1, C_TIME);
   }
 
   /* ---- wifi (falls back to hotspot + on-screen QR portal) ---- */
@@ -205,7 +204,7 @@ void setup() {
   }
 
   /* ---- time (IST) — SNTP keeps retrying once a network appears ---- */
-  configTime(tzOffsetSec, 0, "pool.ntp.org", "time.google.com");
+  applyTimezone();                 // POSIX rule (auto summer time) or fixed offset
   if (WiFi.status() == WL_CONNECTED) {
     time_t now = 0;
     uint32_t t0 = millis();

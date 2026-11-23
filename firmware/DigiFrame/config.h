@@ -13,6 +13,10 @@
 #define ALLOWED_CHAT_ID "YOUR_CHAT_ID"
 
 #define TZ_OFFSET_SEC 19800 // default UTC+5:30 (override at runtime)
+/* A POSIX time-zone rule, e.g. "CET-1CEST,M3.5.0,M10.5.0/3" (Berlin/Paris)
+   — with one set, summer time switches by itself and TZ_OFFSET_SEC is
+   ignored. "" = the fixed offset above. Runtime-editable (`tzRule`). */
+#define TZ_RULE ""
 #define LATITUDE "12.97"    // default location — set your own from the dashboard
 #define LONGITUDE "77.59"
 
