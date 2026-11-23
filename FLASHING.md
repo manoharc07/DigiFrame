@@ -58,6 +58,13 @@ Also works with a browser flasher (e.g. https://espressif.github.io/esptool-js/)
 esptool --chip esp32s3 --port COM5 write-flash 0x10000 build/DigiFrame.ino.bin
 ```
 
+> **Panel dark after changing the wiring on the dashboard?** Power-cycle the
+> frame: an unconfirmed wiring is only ever tried for one boot, so the next
+> boot is back on the last wiring you kept (it also reverts on its own after
+> 10 minutes). A *kept* wiring that is wrong can be changed back from the
+> dashboard, which works without the panel; failing that, a factory reset
+> (below) returns to the `config.h` pins.
+
 ### C) Factory reset — wipes EVERYTHING including stored GIFs
 
 `DigiFrame.ino.merged.bin` is the padded 16 MB image; flashing it

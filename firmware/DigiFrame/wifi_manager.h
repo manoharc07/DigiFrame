@@ -129,8 +129,9 @@ void stopPortal() {
   portalActive = false;
   if (MDNS.begin("digiframe")) MDNS.addService("http", "tcp", 80);
   dma->setBrightness8(userBrightness);
-  if (mode == MODE_SETUP) mode = MODE_CLOCK;
+  if (mode == MODE_SETUP) mode = panelTrial ? MODE_PANELTEST : MODE_CLOCK;
   logLine("PORTAL down — WiFi OK, IP " + WiFi.localIP().toString());
+  applyTimezone();   // first link of this boot: prime DNS, then start SNTP (globals.h)
 }
 
 static bool wifiWait(uint32_t ms) {

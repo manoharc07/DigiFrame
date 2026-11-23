@@ -31,7 +31,7 @@ LANG_DIR = ROOT / "firmware" / "lang"
 FW_DIR = ROOT / "firmware" / "DigiFrame"
 
 # keys read through a computed name, so no literal names them
-DYNAMIC = [re.compile(r"^panel\.dow\.[0-6]$"), re.compile(r"^web\.mode\.[0-5]$"),
+DYNAMIC = [re.compile(r"^panel\.dow\.[0-6]$"), re.compile(r"^web\.mode\.[0-6]$"),
            re.compile(r"^lang\.name$")]
 
 

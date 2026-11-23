@@ -31,6 +31,7 @@ static const char *mqttModeName(Mode m) {
     case MODE_CELEBRATE: return "celebrate";
     case MODE_TEST:      return "test";
     case MODE_SETUP:     return "setup";
+    case MODE_PANELTEST: return "paneltest";
   }
   return "unknown";
 }

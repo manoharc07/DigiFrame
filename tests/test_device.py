@@ -390,6 +390,49 @@ def test_timezone_rules_apply_and_fall_back():
 
 
 @test("device")
+def test_panel_wiring_is_described_and_bad_pins_refused():
+    """Validation only. A VALID apply reboots the frame onto a trial wiring,
+    which would drop it off the LAN mid-suite — the same reason the suite
+    never POSTs /api/wifi. Every case below must be refused with a 400, so
+    nothing is written and nothing reboots."""
+    need_device()
+    import json as _json
+    j = dev_json("/api/panel")
+    eq(len(j["names"]), 14, "fourteen HUB75 lines")
+    eq(len(j["active"]["pins"]), 14, "active wiring has fourteen pins")
+    ok(not j["trial"], "no trial running")
+    contains(j["drivers"], "FM6126A", "driver list")
+    for p in j["active"]["pins"]:
+        contains(j["gpios"], p, "every active pin is in the allowed set")
+    pins = list(j["active"]["pins"])
+
+    import urllib.request, urllib.error
+
+    def refuse(body, what):
+        req = urllib.request.Request(config.dev_url("/api/panel"), method="POST",
+                                     data=_json.dumps(body).encode(),
+                                     headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=15) as r:
+                st, txt = r.status, r.read()
+        except urllib.error.HTTPError as e:
+            st, txt = e.code, e.read()
+        eq(st, 400, what)
+        return txt.decode("utf-8", "replace")
+
+    dup = pins[:]; dup[1] = dup[0]
+    contains(refuse({"pins": dup}, "duplicate pin refused"), "both", "says which pins clash")
+    for gpio, why in ((33, "PSRAM"), (19, "USB"), (0, "strapping"), (27, "flash")):
+        bad = pins[:]; bad[0] = gpio
+        refuse({"pins": bad}, f"GPIO {gpio} ({why}) refused")
+    refuse({"pins": pins[:13]}, "thirteen pins refused")
+    refuse({"drv": 9}, "unknown driver refused")
+    refuse({"latblk": 0}, "latch blanking 0 refused")
+    eq(dev_post("/api/panelkeep")[0], 409, "keep with no trial running")
+    ok(not dev_json("/api/config")["panelTrial"], "still no trial after all that")
+
+
+@test("device")
 def test_language_switches_the_dashboard_strings():
     need_device()
     cfg = dev_json("/api/config")
