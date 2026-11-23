@@ -786,18 +786,23 @@ void renderClock() {
   drawWeatherBg();
   char buf[20];
 
-  /* --- 12-hour time, visually centered: the block width adapts to a
-     1- or 2-digit hour so the rendered content is always centered.
+  /* --- time, visually centered: the block width adapts to a 1- or 2-digit
+     hour so the rendered content is always centered. 12-hour carries AM/PM;
+     24-hour always has two hour digits ("09:05") and no suffix, so its block
+     is a fixed 53px and never shifts at 10:00.
      Colon blinks bright<->dim (never vanishes, so no fake gap). --- */
-  int h12 = tmNow.tm_hour % 12;
-  if (h12 == 0) h12 = 12;
+  bool h24 = cfg24h;
+  int  hv  = h24 ? tmNow.tm_hour : tmNow.tm_hour % 12;
+  if (!h24 && hv == 0) hv = 12;
   bool pm = (tmNow.tm_hour >= 12);
   char hs[4], msb[4];
-  snprintf(hs, sizeof(hs), "%d", h12);
+  snprintf(hs, sizeof(hs), h24 ? "%02d" : "%d", hv);
   snprintf(msb, sizeof(msb), "%02d", tmNow.tm_min);
-  const int COLON_W = 5, MIN_W = 24, AMPM_W = 11;
-  int hw   = (h12 >= 10) ? 24 : 12;
-  int gap  = (h12 >= 10) ? 0 : 2;                  // 2-digit uses full width
+  bool twoDig = h24 || hv >= 10;
+  const int COLON_W = 5, MIN_W = 24;
+  const int AMPM_W  = h24 ? 0 : 11;
+  int hw   = twoDig ? 24 : 12;
+  int gap  = twoDig ? 0 : 2;                       // 2-digit uses full width
   int xoff = (PANEL_W - (hw + COLON_W + MIN_W + gap + AMPM_W)) / 2;
   if (xoff < 0) xoff = 0;
   dma->setTextWrap(false);
@@ -811,9 +816,11 @@ void renderClock() {
   dma->setCursor(xoff + hw + COLON_W, 2);
   dma->print(msb);
   dma->setTextSize(1);
-  dma->setTextColor(C_DATE);
-  dma->setCursor(xoff + hw + COLON_W + MIN_W + gap, 10);
-  dma->print(pm ? "PM" : "AM");
+  if (!h24) {
+    dma->setTextColor(C_DATE);
+    dma->setCursor(xoff + hw + COLON_W + MIN_W + gap, 10);
+    dma->print(tr(pm ? "panel.pm" : "panel.am"));
+  }
 
   /* --- seconds comet: a soft trail grows across beneath the time,
      with a pulsing bright head — a full sweep every minute --- */
@@ -838,8 +845,11 @@ void renderClock() {
 
     /* --- footer: date/temp block and the potted plant share the same
        top and bottom edges (rows 47-62), so nothing floats in dead space --- */
-    static const char *DOW[7] = {"SUN","MON","TUE","WED","THU","FRI","SAT"};
-    snprintf(buf, sizeof(buf), "%s %d", DOW[tmNow.tm_wday], tmNow.tm_mday);
+    /* weekday + day in the active language: "MON 23" / "MO 23." — both are
+       six glyphs, which is the room left of the plant at x=41 */
+    char dowKey[16];
+    snprintf(dowKey, sizeof(dowKey), "panel.dow.%d", tmNow.tm_wday % 7);
+    snprintf(buf, sizeof(buf), tr("panel.date"), tr(dowKey), tmNow.tm_mday);
     dma->setTextColor(C_DATE);
     dma->setCursor(2, 47);
     dma->print(buf);

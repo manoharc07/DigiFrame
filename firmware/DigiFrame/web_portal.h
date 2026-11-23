@@ -69,141 +69,164 @@ button.rot{font-size:20px;line-height:1;padding:6px 12px}
 #oriv{min-width:56px;text-align:center;font-size:14px}
 button.tu{min-width:48px;margin-left:6px}button.tu.off{background:#23233a;color:#8a8aa8}</style>
 </head><body><h1>&#9200; DigiFrame</h1>
-<div id=strip>connecting&hellip;</div>
+<div id=strip data-t=web.strip.connecting>connecting&hellip;</div>
 <div id=updban></div>
 <input type=radio name=tab id=t1 checked><input type=radio name=tab id=t2>
 <input type=radio name=tab id=t3><input type=radio name=tab id=t4>
-<div class=tabs><label for=t1>Now</label><label for=t2>Scores</label>
-<label for=t3>Content</label><label for=t4>Settings</label></div>
+<div class=tabs><label for=t1 data-t=web.tab.now>Now</label><label for=t2 data-t=web.tab.scores>Scores</label>
+<label for=t3 data-t=web.tab.content>Content</label><label for=t4 data-t=web.tab.settings>Settings</label></div>
 
 <div class=pane id=p1>
-<div class=row><button onclick="api('stop')">&#9209; Back to clock</button>
-<button onclick=preview()>&#128250; Preview card</button>
-<button onclick="api('celebrate')">&#127881; Celebration</button></div>
-<fieldset><legend>Live now</legend>
-<div id=lvw><div class=gh>looking for matches&hellip;</div></div>
-<div class=st>found in your browser, straight from ESPN &mdash; following is not
+<div class=row><button onclick="api('stop')" data-t=web.now.back>&#9209; Back to clock</button>
+<button onclick=preview() data-t=web.now.preview>&#128250; Preview card</button>
+<button onclick="api('celebrate')" data-t=web.now.celebrate>&#127881; Celebration</button></div>
+<fieldset><legend data-t=web.live.legend>Live now</legend>
+<div id=lvw><div class=gh data-t=web.live.looking>looking for matches&hellip;</div></div>
+<div class=st data-t=web.live.hint>found in your browser, straight from ESPN &mdash; following is not
 required to watch one. &#128204; puts a match on the panel until it finishes.</div>
 </fieldset>
-<fieldset><legend>Send a message</legend>
-<input id=m placeholder="Hello!" style="width:64%">
-<button onclick="api('msg','t='+encodeURIComponent(m.value))">Send</button></fieldset>
-<fieldset><legend>Brightness</legend>
+<fieldset><legend data-t=web.msg.legend>Send a message</legend>
+<input id=m placeholder="Hello!" data-tp=web.msg.ph style="width:64%">
+<button onclick="api('msg','t='+encodeURIComponent(m.value))" data-t=web.msg.send>Send</button></fieldset>
+<fieldset><legend data-t=web.bright.legend>Brightness</legend>
 <input type=range min=1 max=255 value=100 id=b aria-label=brightness style="width:100%"
  onchange="api('brightness','v='+b.value)"></fieldset>
 </div>
 
 <div class=pane id=p2>
-<fieldset><legend>Follow</legend>
-<div class=row><label>find <select id=spkind aria-label="what to search" onchange=doSearch()>
-<option value=team>teams</option><option value=league>leagues</option>
-<option value=driver>F1 drivers</option></select></label></div>
-<input id=spq placeholder="Arsenal, Chennai, Lakers&hellip;" style="width:98%" autocomplete=off
+<fieldset><legend data-t=web.follow.legend>Follow</legend>
+<div class=row><label><span data-t=web.follow.find>find</span> <select id=spkind aria-label="what to search" onchange=doSearch()>
+<option value=team data-t=web.follow.teams>teams</option><option value=league data-t=web.follow.leagues>leagues</option>
+<option value=driver data-t=web.follow.drivers>F1 drivers</option></select></label></div>
+<input id=spq placeholder="Arsenal, Chennai, Lakers&hellip;" data-tp=web.follow.ph style="width:98%" autocomplete=off
  aria-label="search ESPN">
 <div id=spr></div>
 <ul id=spl></ul>
-<div id=spfb style="display:none"><div class=st>ESPN search is unreachable &mdash; built-in list:</div>
+<div id=spfb style="display:none"><div class=st data-t=web.follow.fallback>ESPN search is unreachable &mdash; built-in list:</div>
 <select id=sps aria-label=sport onchange=loadTeamOpts()></select>
 <select id=spt aria-label=team></select>
-<button onclick=addTeam()>Follow</button></div></fieldset>
-<fieldset><legend>Sports</legend><div id=spsp></div>
-<div class=st>a sport you switch off never takes the panel, whatever is live in
+<button onclick=addTeam() data-t=web.follow.btn>Follow</button></div></fieldset>
+<fieldset><legend data-t=web.sports.legend>Sports</legend><div id=spsp></div>
+<div class=st data-t=web.sports.hint>a sport you switch off never takes the panel, whatever is live in
 it. This is a filter, not a search: it does not go looking for matches on its
 own &mdash; follow a league for that.</div></fieldset>
-<fieldset><legend>Score card</legend>
-<div class=row><label><input type=checkbox id=spe onchange=saveSport()> show live scores</label></div>
-<div class=row><label>source <select id=spsrc onchange=saveSport()><option value=http>ESPN (live)</option><option value=demo>demo (simulated)</option></select></label>
-<label>effects <select id=spfx onchange=saveSport()><option value=1>major only</option><option value=2>every event</option><option value=0>off</option></select></label></div>
-<div class=row><label>each match gets <input id=sprot type=number min=0 max=300 style="width:52px" onchange=saveSport()> s</label>
-<span class=st>0 = no rotation</span></div>
-<div class=row><label>refresh every <input id=spref type=number min=0 max=300 style="width:52px" onchange=saveSport()> s</label>
+<fieldset><legend data-t=web.card.legend>Score card</legend>
+<div class=row><label><input type=checkbox id=spe onchange=saveSport()> <span data-t=web.card.show>show live scores</span></label></div>
+<div class=row><label><span data-t=web.card.source>source</span> <select id=spsrc onchange=saveSport()><option value=http data-t=web.card.src.http>ESPN (live)</option><option value=demo data-t=web.card.src.demo>demo (simulated)</option></select></label>
+<label><span data-t=web.card.fx>effects</span> <select id=spfx onchange=saveSport()><option value=1 data-t=web.card.fx.1>major only</option><option value=2 data-t=web.card.fx.2>every event</option><option value=0 data-t=web.card.fx.0>off</option></select></label></div>
+<div class=row><label><span data-t=web.card.rot>each match gets</span> <input id=sprot type=number min=0 max=300 style="width:52px" onchange=saveSport()> s</label>
+<span class=st data-t=web.card.rot.hint>0 = no rotation</span></div>
+<div class=row><label><span data-t=web.card.ref>refresh every</span> <input id=spref type=number min=0 max=300 style="width:52px" onchange=saveSport()> s</label>
 <span class=st id=sprefh>0 = per sport</span></div>
-<div class=row><label>stay <input id=sph type=number min=0 max=120 style="width:48px" onchange=saveSport()> min after full time</label></div>
-<div class=row><select id=spfxt aria-label=animation></select><button onclick=testFx()>Play animation</button></div>
-<div class=st>the frame switches to the score card by itself when something you
+<div class=row><label><span data-t=web.card.stay>stay</span> <input id=sph type=number min=0 max=120 style="width:48px" onchange=saveSport()> <span data-t=web.card.stay.after>min after full time</span></label></div>
+<div class=row><select id=spfxt aria-label=animation></select><button onclick=testFx() data-t=web.card.play>Play animation</button></div>
+<div class=st data-t=web.card.hint>the frame switches to the score card by itself when something you
 follow kicks off, and goes back to the clock scene after the match</div></fieldset>
 </div>
 
 <div class=pane id=p3>
-<fieldset><legend>GIFs (c_* = character pack)</legend><ul id=l></ul>
-<input type=file id=f accept=.gif aria-label="GIF file"><br><input id=n placeholder="name" style="width:100px">
-<label><input type=checkbox id=p> character pack</label>
-<button onclick=up()>Upload</button></fieldset>
-<fieldset><legend>Random cameo every</legend>
-<input id=iv type=number min=0 value=20 style="width:60px" aria-label="cameo interval"> min (0 = off)
-<button onclick="api('interval','m='+iv.value)">Set</button></fieldset>
-<fieldset><legend>Special days</legend><ul id=ev></ul>
+<fieldset><legend data-t=web.gif.legend>GIFs (c_* = character pack)</legend><ul id=l></ul>
+<input type=file id=f accept=.gif aria-label="GIF file"><br><input id=n placeholder="name" data-tp=web.gif.name style="width:100px">
+<label><input type=checkbox id=p> <span data-t=web.gif.pack>character pack</span></label>
+<button onclick=up() data-t=web.gif.upload>Upload</button></fieldset>
+<fieldset><legend data-t=web.cameo.legend>Random cameo every</legend>
+<input id=iv type=number min=0 value=20 style="width:60px" aria-label="cameo interval"> <span data-t=web.cameo.unit>min (0 = off)</span>
+<button onclick="api('interval','m='+iv.value)" data-t=web.set>Set</button></fieldset>
+<fieldset><legend data-t=web.ev.legend>Special days</legend><ul id=ev></ul>
 <input id=ed placeholder="MM-DD" style="width:70px">
-<select id=et aria-label="day type"><option value=custom>custom</option><option value=birthday>birthday</option></select>
-<input id=em placeholder="message" style="width:98%">
-<button onclick=addEv()>Add / update</button>
-<div class=st>type drives the visual: custom = fireworks, birthday = cake</div></fieldset>
+<select id=et aria-label="day type"><option value=custom data-t=web.ev.custom>custom</option><option value=birthday data-t=web.ev.birthday>birthday</option></select>
+<input id=em placeholder="message" data-tp=web.ev.msg style="width:98%">
+<button onclick=addEv() data-t=web.ev.add>Add / update</button>
+<div class=st data-t=web.ev.hint>type drives the visual: custom = fireworks, birthday = cake</div></fieldset>
 </div>
 
 <div class=pane id=p4>
-<fieldset><legend>WiFi</legend>
+<fieldset><legend data-t=web.wifi.legend>WiFi</legend>
 <ul id=wl></ul>
 <input id=ws placeholder="network name (SSID)" style="width:94%"><br>
-<input id=wp type=password placeholder="password" style="width:60%">
-<button onclick="api('wifi','s='+encodeURIComponent(ws.value)+'&p='+encodeURIComponent(wp.value))">Save &amp; connect</button>
+<input id=wp type=password placeholder="password" data-tp=web.wifi.pass style="width:60%">
+<button onclick="api('wifi','s='+encodeURIComponent(ws.value)+'&p='+encodeURIComponent(wp.value))" data-t=web.wifi.save>Save &amp; connect</button>
 <div class=st id=wst></div>
-<div class=st>saved networks are tried strongest first whenever the frame
+<div class=st data-t=web.wifi.hint>saved networks are tried strongest first whenever the frame
 boots or loses its connection &mdash; tap a name to update its password</div></fieldset>
-<fieldset><legend>Display</legend>
+<fieldset><legend data-t=web.disp.legend>Display</legend>
 <div class=row><button class=rot onclick=rot(-1) aria-label="rotate left" title="rotate left">&#10226;</button>
 <span id=oriv>0&deg;</span>
 <button class=rot onclick=rot(1) aria-label="rotate right" title="rotate right">&#10227;</button></div>
-<div class=st>rotates everything on the panel, for a frame hung on its side</div>
-<div class=row style="margin-top:10px">Temperature
-<button class=tu id=tuc onclick="setTU(0)">&deg;C</button><button class=tu id=tuf onclick="setTU(1)">&deg;F</button></div></fieldset>
+<div class=st data-t=web.disp.rot.hint>rotates everything on the panel, for a frame hung on its side</div>
+<div class=row style="margin-top:10px"><span data-t=web.disp.temp>Temperature</span>
+<button class=tu id=tuc onclick="setTU(0)">&deg;C</button><button class=tu id=tuf onclick="setTU(1)">&deg;F</button></div>
+<div class=row><span data-t=web.disp.clock>Clock</span>
+<button class=tu id=ck12 onclick="setCK(0)">12h</button><button class=tu id=ck24 onclick="setCK(1)">24h</button></div>
+<div class=row><span data-t=web.disp.lang>Language</span>
+<select id=lng aria-label=language onchange=setLang(this.value)></select></div></fieldset>
 <fieldset><legend>Telegram</legend>
 <input id=tt placeholder="bot token (from @BotFather)" style="width:94%"><br>
 <input id=tc placeholder="allowed chat id" style="width:60%">
-<button onclick="api('tgconfig','t='+encodeURIComponent(tt.value)+'&c='+encodeURIComponent(tc.value))">Save</button>
+<button onclick="api('tgconfig','t='+encodeURIComponent(tt.value)+'&c='+encodeURIComponent(tc.value))" data-t=web.save>Save</button>
 <div class=st id=tst></div>
-<button onclick="api('tgtest')">Test Telegram send</button></fieldset>
-<fieldset><legend>Weather location</legend>
+<button onclick="api('tgtest')" data-t=web.tg.test>Test Telegram send</button></fieldset>
+<fieldset><legend data-t=web.loc.legend>Weather location</legend>
 <input id=la placeholder="latitude" style="width:28%">
 <input id=lo placeholder="longitude" style="width:28%">
-<button onclick="api('loc','la='+encodeURIComponent(la.value)+'&lo='+encodeURIComponent(lo.value))">Save</button>
-<div class=st>decimal degrees, e.g. 12.97 / 77.59 &mdash; weather refreshes right away</div></fieldset>
-<fieldset><legend>Time zone</legend>
-<input id=tz type=number step=0.25 placeholder="UTC offset (hours)" style="width:55%">
-<button onclick=saveTz()>Save</button>
-<div class=st>e.g. 5.5 for IST, -8 for PST, 5.75 for Nepal &mdash; clock updates right away</div></fieldset>
+<button onclick="api('loc','la='+encodeURIComponent(la.value)+'&lo='+encodeURIComponent(lo.value))" data-t=web.save>Save</button>
+<div class=st data-t=web.loc.hint>decimal degrees, e.g. 12.97 / 77.59 &mdash; weather refreshes right away</div></fieldset>
+<fieldset><legend data-t=web.tz.legend>Time zone</legend>
+<input id=tz type=number step=0.25 placeholder="UTC offset (hours)" data-tp=web.tz.ph style="width:55%">
+<button onclick=saveTz() data-t=web.save>Save</button>
+<div class=st data-t=web.tz.hint>e.g. 5.5 for IST, -8 for PST, 5.75 for Nepal &mdash; clock updates right away</div></fieldset>
 <fieldset><legend>Home Assistant (MQTT)</legend>
-<label><input type=checkbox id=mqe> enable</label><br>
+<label><input type=checkbox id=mqe> <span data-t=web.mqtt.enable>enable</span></label><br>
 <input id=mqh placeholder="broker host/IP" style="width:60%">
 <input id=mqp type=number placeholder="1883" style="width:70px"><br>
 <input id=mqu placeholder="username (optional)" style="width:45%">
-<input id=mqw type=password placeholder="password" style="width:45%">
-<button onclick=saveMqtt()>Save</button>
-<div class=st>the clock announces itself to Home Assistant via MQTT discovery</div></fieldset>
-<fieldset><legend>Firmware</legend>
-<div class=st>running <b id=fwv>&hellip;</b></div>
-<button onclick="updCheck(1)">&#8635; Check for updates</button>
-<div class=st id=ust>checks github for a newer release</div>
-<details style="margin-top:10px"><summary class=st style=cursor:pointer>install a .bin by hand</summary>
+<input id=mqw type=password placeholder="password" data-tp=web.wifi.pass style="width:45%">
+<button onclick=saveMqtt() data-t=web.save>Save</button>
+<div class=st data-t=web.mqtt.hint>the clock announces itself to Home Assistant via MQTT discovery</div></fieldset>
+<fieldset><legend data-t=web.fw.legend>Firmware</legend>
+<div class=st><span data-t=web.fw.running>running</span> <b id=fwv>&hellip;</b></div>
+<button onclick="updCheck(1)" data-t=web.fw.check>&#8635; Check for updates</button>
+<div class=st id=ust data-t=web.fw.checkhint>checks github for a newer release</div>
+<details style="margin-top:10px"><summary class=st style=cursor:pointer data-t=web.fw.manual>install a .bin by hand</summary>
 <input type=file id=fw accept=.bin aria-label="firmware image"><br>
-<button onclick=ota()>&#9889; Upload &amp; flash</button>
-<div class=st id=ost>DigiFrame.ino.bin (app image) &mdash; frame reboots when done</div>
+<button onclick=ota() data-t=web.fw.flash>&#9889; Upload &amp; flash</button>
+<div class=st id=ost data-t=web.fw.binhint>DigiFrame.ino.bin (app image) &mdash; frame reboots when done</div>
 </details></fieldset>
-<fieldset><legend>Logs (live)</legend>
+<fieldset><legend data-t=web.log.legend>Logs (live)</legend>
 <pre id=log style="background:#0a0a12;padding:8px;border-radius:6px;max-height:220px;overflow:auto;font-size:11px;white-space:pre-wrap;margin:0"></pre>
-<button onclick="loadLogs()">&#8635; Refresh</button></fieldset>
+<button onclick="loadLogs()" data-t=web.log.refresh>&#8635; Refresh</button></fieldset>
 </div>
 <script>
+/* ---- UI strings ----
+ The page ships its English text inline, so it reads correctly before (or
+ without) this fetch. /api/i18n returns every web.* key already resolved to
+ the frame's language with the English fallback applied, and applyLang()
+ swaps the text of everything marked data-t (text) / data-tp (placeholder).
+ Dynamic strings go through T()/F(); web.* values use {0},{1} placeholders. */
+let L={};
+function T(k){return L[k]!=null?L[k]:k}
+function F(k,...a){return T(k).replace(/\{(\d+)\}/g,(m,i)=>a[i]!=null?a[i]:'')}
+async function loadLang(){try{L=await (await fetch('/api/i18n',{cache:'no-store'})).json();
+ document.documentElement.lang=L.lang||'en';
+ document.querySelectorAll('[data-t]').forEach(e=>{if(L[e.dataset.t]!=null)e.textContent=L[e.dataset.t]});
+ document.querySelectorAll('[data-tp]').forEach(e=>{if(L[e.dataset.tp]!=null)e.placeholder=L[e.dataset.tp]})}
+ catch(e){}}
+async function setLang(c){await fetch('/api/lang',{method:'POST',
+ headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'v='+encodeURIComponent(c)});
+ location.reload()}
 async function api(ep,body){await fetch('/api/'+ep,{method:'POST',
  headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body||''});load();loadLogs();loadCfg();loadEv();loadNets()}
 async function loadNets(){try{let j=await (await fetch('/api/wifinets')).json();
- wl.innerHTML=j.length?j.map(n=>`<li class=sp data-s="${esc(n.ssid)}"><span class=g title="update password" onclick="ws.value=this.parentNode.dataset.s;wp.focus()">${esc(n.ssid)}</span>`
-  +(n.cur?'<span class=on>&#9679; connected</span>':'')+`<button class=x onclick="api('wifidel','s='+encodeURIComponent(this.parentNode.dataset.s))" aria-label=forget title=forget>&#10005;</button></li>`).join('')
-  :'<li class="sp st">no saved networks yet</li>'}catch(e){}}
+ wl.innerHTML=j.length?j.map(n=>`<li class=sp data-s="${esc(n.ssid)}"><span class=g title="${T('web.wifi.update')}" onclick="ws.value=this.parentNode.dataset.s;wp.focus()">${esc(n.ssid)}</span>`
+  +(n.cur?'<span class=on>'+esc(T('web.wifi.cur'))+'</span>':'')+`<button class=x onclick="api('wifidel','s='+encodeURIComponent(this.parentNode.dataset.s))" aria-label="${T('web.wifi.forget')}" title="${T('web.wifi.forget')}">&#10005;</button></li>`).join('')
+  :'<li class="sp st">'+esc(T('web.wifi.none'))+'</li>'}catch(e){}}
 let ORI=0;
 function showOri(){oriv.textContent=ORI*90+String.fromCharCode(176)}
 function rot(d){ORI=(ORI+d+4)%4;showOri();api('orient','v='+ORI)}
 function showTU(f){tuc.classList.toggle('off',!!f);tuf.classList.toggle('off',!f)}
 function setTU(f){showTU(f);api('tempunit','v='+(f?'f':'c'))}
+function showCK(h){ck12.classList.toggle('off',!!h);ck24.classList.toggle('off',!h)}
+function setCK(h){showCK(h);api('clock','v='+(h?24:12))}
 async function load(){try{let r=await fetch('/api/list'),j=await r.json();
  l.innerHTML=j.map(g=>`<li>${g} <button onclick="api('play','g=${g}')">&#9654;</button>
  <button onclick="api('del','g=${g}')">&#128465;</button></li>`).join('')}catch(e){}}
@@ -212,14 +235,14 @@ async function up(){if(!f.files[0])return;let fd=new FormData();fd.append('file'
  {method:'POST',body:fd});load()}
 async function loadLogs(){try{let r=await fetch('/api/logs');log.textContent=await r.text();
  log.scrollTop=log.scrollHeight}catch(e){}}
-function ota(){if(!fw.files[0]){ost.textContent='pick a .bin first';return}
- if(!confirm('Flash '+fw.files[0].name+' and reboot?'))return;
+function ota(){if(!fw.files[0]){ost.textContent=T('web.fw.pick');return}
+ if(!confirm(F('web.fw.confirm',fw.files[0].name)))return;
  let x=new XMLHttpRequest();x.open('POST','/api/ota');
- x.upload.onprogress=e=>{if(e.lengthComputable)ost.textContent='uploading '+Math.round(100*e.loaded/e.total)+'% ...'};
+ x.upload.onprogress=e=>{if(e.lengthComputable)ost.textContent=F('web.fw.pct',Math.round(100*e.loaded/e.total))};
  x.onload=()=>{ost.textContent=x.responseText};
- x.onerror=()=>{ost.textContent='upload failed (connection lost)'};
+ x.onerror=()=>{ost.textContent=T('web.fw.lost')};
  let fd=new FormData();fd.append('file',fw.files[0]);x.send(fd);
- ost.textContent='uploading...'}
+ ost.textContent=T('web.fw.uploading')}
 /* ---- firmware update ----
  The CHECK runs here, in the browser, and not on the frame. api.github.com
  sends Access-Control-Allow-Origin:* so this page may read it, the reply is
@@ -239,7 +262,7 @@ function vcmp(a,b){const p=v=>String(v).replace(/^v/i,'').split('.').map(n=>pars
  a=p(a);b=p(b);for(let i=0;i<3;i++){const d=(a[i]||0)-(b[i]||0);if(d)return d<0?-1:1}return 0}
 async function updCheck(manual){
  if(!CFG||!CFG.updRepo)return;
- if(manual)ust.textContent='checking github…';
+ if(manual)ust.textContent=T('web.fw.checking');
  try{
   const r=await fetch('https://api.github.com/repos/'+CFG.updRepo+'/releases/latest');
   if(!r.ok)throw new Error('HTTP '+r.status);
@@ -247,32 +270,28 @@ async function updCheck(manual){
   /* the app-only image, never the full-flash one: that starts with the
      bootloader, so the frame would reject it a moment later anyway */
   const a=(j.assets||[]).find(x=>x.name.endsWith(CFG.updAsset));
-  if(!a){ust.textContent=j.tag_name+' has no '+CFG.updAsset+' asset';return}
+  if(!a){ust.textContent=F('web.fw.noasset',j.tag_name,CFG.updAsset);return}
   if(vcmp(CFG.fw,j.tag_name)>=0){UPD=null;updban.style.display='none';
-   ust.textContent='up to date (v'+CFG.fw+', latest '+j.tag_name+')';return}
+   ust.textContent=F('web.fw.uptodate',CFG.fw,j.tag_name);return}
   UPD={tag:j.tag_name,url:a.browser_download_url,size:a.size};
-  ust.textContent=j.tag_name+' available — '+Math.round(a.size/1024)+' KB';
+  ust.textContent=F('web.fw.avail',j.tag_name,Math.round(a.size/1024));
   updban.className='';
-  updban.innerHTML='<div class=g>Firmware <b>'+esc(j.tag_name)+'</b> is available'
-   +' <span style="opacity:.7">(you have v'+esc(CFG.fw)+')</span></div>'
-   +'<button id=updgo>Install</button>';
+  updban.innerHTML='<div class=g>'+F('web.fw.banner',esc(j.tag_name),esc(CFG.fw))+'</div>'
+   +'<button id=updgo>'+esc(T('web.fw.install'))+'</button>';
   updgo.onclick=updGo;
   updban.style.display='flex'}
- catch(e){ust.textContent='could not reach github ('+e.message+')'}}
+ catch(e){ust.textContent=F('web.fw.offline',e.message)}}
 async function updGo(){
  if(!UPD)return;
- if(!confirm('Install '+UPD.tag+'?\n\nThe frame downloads '+Math.round(UPD.size/1024)
-  +' KB from GitHub and reboots - about 25 seconds. The panel goes dark while it '
-  +'downloads: the screen memory is what pays for the secure connection.'))return;
+ if(!confirm(F('web.fw.confirminst',UPD.tag,Math.round(UPD.size/1024))))return;
  const r=await fetch('/api/update',{method:'POST',
   headers:{'Content-Type':'application/x-www-form-urlencoded'},
   body:'u='+encodeURIComponent(UPD.url)+'&t='+encodeURIComponent(UPD.tag)+'&s='+UPD.size});
  const t=await r.text();
- if(!r.ok){updban.className='warn';ust.textContent='refused: '+t;
-  updban.innerHTML='<div class=g>Update refused: '+esc(t)+'</div>';return}
+ if(!r.ok){updban.className='warn';ust.textContent=F('web.fw.refused',t);
+  updban.innerHTML='<div class=g>'+F('web.fw.refused',esc(t))+'</div>';return}
  updban.className='';
- updban.innerHTML='<div class=g>Installing <b>'+esc(UPD.tag)+'</b> — watch the panel.'
-  +' This page reconnects on its own.</div>';
+ updban.innerHTML='<div class=g>'+F('web.fw.installing',esc(UPD.tag))+'</div>';
  updWait(UPD.tag)}
 /* The frame stops answering the moment it starts: updateInstall() runs on
    core 1, which is also what services this socket. Silence is the expected
@@ -284,38 +303,44 @@ async function updWait(tag){
   await new Promise(r=>setTimeout(r,4000));
   try{const j=await (await fetch('/api/config',{cache:'no-store'})).json();
    if(j.updBusy)continue;
-   if(vcmp(j.fw,was)>0){updban.innerHTML='<div class=g>Updated to <b>v'+esc(j.fw)
-     +'</b>.</div>';setTimeout(()=>location.reload(),1500);return}
+   if(vcmp(j.fw,was)>0){updban.innerHTML='<div class=g>'+F('web.fw.done',esc(j.fw))+'</div>';setTimeout(()=>location.reload(),1500);return}
    if(j.updErr){updban.className='warn';
-    updban.innerHTML='<div class=g>Update failed: '+esc(j.updErr)+'</div>';
-    ust.textContent='update failed: '+j.updErr;return}}
+    updban.innerHTML='<div class=g>'+F('web.fw.failed',esc(j.updErr))+'</div>';
+    ust.textContent=F('web.fw.failed',j.updErr);return}}
   catch(e){}}
  updban.className='warn';
- updban.innerHTML='<div class=g>Lost contact with the frame — check the panel.</div>'}
+ updban.innerHTML='<div class=g>'+esc(T('web.fw.contact'))+'</div>'}
 async function loadCfg(){try{let r=await fetch('/api/config'),j=await r.json();
- ws.placeholder=j.ssid?('SSID: '+j.ssid):'network name (SSID)';
- tc.placeholder=j.chat?('chat id: '+j.chat):'allowed chat id';
- tt.placeholder=j.token?('token: '+j.token):'bot token (from @BotFather)';
- la.placeholder='lat: '+j.lat;lo.placeholder='lon: '+j.lon;
- wst.textContent='WiFi: '+j.wifi;ORI=j.orient||0;showOri();showTU(j.tempF);tst.textContent='';fwv.textContent='v'+j.fw;
- mqe.checked=!!j.mqttEn;mqh.placeholder=j.mqttHost||'broker host/IP';mqp.placeholder=j.mqttPort||1883;mqu.placeholder=j.mqttUser||'username (optional)';
+ ws.placeholder=j.ssid?F('web.wifi.ssidis',j.ssid):T('web.wifi.ssid');
+ tc.placeholder=j.chat?F('web.tg.chatis',j.chat):T('web.tg.chat');
+ tt.placeholder=j.token?F('web.tg.tokenis',j.token):T('web.tg.token');
+ la.placeholder=T('web.loc.lat')+': '+j.lat;lo.placeholder=T('web.loc.lon')+': '+j.lon;
+ j.wifiTxt=wifiTxt(j);
+ wst.textContent=F('web.wifi.status',j.wifiTxt);ORI=j.orient||0;showOri();showTU(j.tempF);showCK(j.h24);
+ if(j.langs&&lng.options.length!=j.langs.length)
+  lng.innerHTML=j.langs.map(x=>`<option value="${esc(x.c)}">${esc(x.n)}</option>`).join('');
+ lng.value=j.lang;tst.textContent='';fwv.textContent='v'+j.fw;
+ mqe.checked=!!j.mqttEn;mqh.placeholder=j.mqttHost||T('web.mqtt.host');mqp.placeholder=j.mqttPort||1883;mqu.placeholder=j.mqttUser||T('web.mqtt.user');
  spe.checked=!!j.sportEn;spsrc.value=j.sportSrc||'demo';spfx.value=j.sportFx;
  if(!sph.value)sph.value=j.sportHold;if(!sprot.value)sprot.value=j.sportRot;
  if(!spref.value)spref.value=j.sportRef;
  /* the floor is not a guess: every request is spaced 1.2 s apart, so a poll of
     the currently live matches takes as long as it takes. Show what it measured. */
- sprefh.textContent=j.sportPoll?('0 = per sport · last poll took '+(j.sportPoll/1000).toFixed(1)+'s')
-                               :'0 = per sport';
+ sprefh.textContent=j.sportPoll?F('web.card.ref.took',(j.sportPoll/1000).toFixed(1))
+                               :T('web.card.ref.hint');
  CFG=j;drawStrip(j);
- tz.placeholder='UTC'+(j.tz>=0?'+':'')+(j.tz/3600)+'h'}catch(e){strip.textContent='frame unreachable'}}
+ tz.placeholder='UTC'+(j.tz>=0?'+':'')+(j.tz/3600)+'h'}catch(e){strip.textContent=T('web.strip.unreachable')}}
+/* the frame's own wording of its link is English; word it from the state code */
+function wifiTxt(j){return j.wifiSt=='up'?F('web.wifi.up',j.ip):j.wifiSt=='ap'?T('web.wifi.ap')
+ :j.wifiSt=='down'?T('web.wifi.down'):j.wifi}
 /* One line that answers "what is it doing?" without opening a tab. */
-function drawStrip(j){const MODE=['clock','message','GIF','celebration','test','setup'];
- let what=j.sportOn?('<b>'+esc(j.sportNow||'score card')+'</b>'+(j.sportPin?' &#128204;':''))
-        :'<b>'+(MODE[j.mode]||'clock')+'</b>';
- strip.innerHTML=what+' &middot; '+esc(j.wifi)+' &middot; '+j.heap+'KB'
+function drawStrip(j){
+ let what=j.sportOn?('<b>'+esc(j.sportNow||T('web.strip.scorecard'))+'</b>'+(j.sportPin?' &#128204;':''))
+        :'<b>'+esc(T('web.mode.'+(j.mode|0)))+'</b>';
+ strip.innerHTML=what+' &middot; '+esc(j.wifiTxt||j.wifi)+' &middot; '+j.heap+'KB'
   +(j.sportErr?' &middot; <span style="color:#ffa0b8">'+esc(j.sportErr)+'</span>':'')}
 async function loadEv(){try{let r=await fetch('/api/events'),j=await r.json();
- ev.innerHTML=j.length?j.map(e=>`<li>${e.date} [${e.type}] ${e.message} <button onclick="delEv('${e.date}')">&#128465;</button></li>`).join(''):'<li class=st>none yet</li>'}catch(e){}}
+ ev.innerHTML=j.length?j.map(e=>`<li>${e.date} [${e.type}] ${e.message} <button onclick="delEv('${e.date}')">&#128465;</button></li>`).join(''):'<li class=st>'+esc(T('web.ev.none'))+'</li>'}catch(e){}}
 async function addEv(){if(!ed.value)return;await fetch('/api/events',{method:'POST',
  headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'d='+encodeURIComponent(ed.value)+'&t='+et.value+'&m='+encodeURIComponent(em.value)});em.value='';loadEv()}
 async function delEv(d){await fetch('/api/eventdel',{method:'POST',
@@ -369,9 +394,9 @@ async function doSearch(){const q=spq.value.trim();
  if(spkind.value=='league')return doLeagueSearch(q);
  if(spkind.value=='driver')return doDriverSearch(q);
  if(q.length<3){spr.innerHTML='';return}
- const mine=++SEQ;spr.innerHTML='<div class=gh>searching&hellip;</div>';
+ const mine=++SEQ;spr.innerHTML='<div class=gh>'+esc(T('web.follow.searching'))+'</div>';
  let j;try{const r=await fetch(ESPN_SEARCH+'?limit=25&type=team&query='+encodeURIComponent(q));
-  j=await r.json()}catch(e){spfb.style.display='';spr.innerHTML='<div class=gh>ESPN unreachable</div>';return}
+  j=await r.json()}catch(e){spfb.style.display='';spr.innerHTML='<div class=gh>'+esc(T('web.follow.offline'))+'</div>';return}
  if(mine!=SEQ)return;                       // a later keystroke already won
  spfb.style.display='none';
  /* CAT[].espn is the sport module's own ESPN slug, so a new sport becomes
@@ -379,7 +404,7 @@ async function doSearch(){const q=spq.value.trim();
  let hits=[];
  for(const it of (j.items||[])){const s=CAT.findIndex(c=>c.espn==it.sport);
   if(s>=0)hits.push([s,it])}
- if(!hits.length){spr.innerHTML='<div class=gh>nothing in the sports this frame shows</div>';return}
+ if(!hits.length){spr.innerHTML='<div class=gh>'+esc(T('web.follow.nohits'))+'</div>';return}
  /* ESPN ranks by relevance, which still floats age-group and university sides
     up next to the senior club ("chennai" returns ten of them). Those are the
     entries with no abbreviation, so sink them rather than drop them — someone
@@ -389,7 +414,7 @@ async function doSearch(){const q=spq.value.trim();
  spr.innerHTML=hits.map(([s,it],n)=>`<div class=hit data-n=${n}>`+
   `<span class=sw style="background:${ink(it.color)}"></span><b>${esc(it.displayName)}</b>`+
   `<i>${esc(CAT[s].label)}${it.league?' &middot; '+esc(it.league):''}</i></div>`).join('')
-  +(more>0?`<div class=gh>+${more} more &mdash; refine the search</div>`:'');
+  +(more>0?`<div class=gh>${esc(F('web.follow.more',more))}</div>`:'');
  [...spr.querySelectorAll('.hit')].forEach(el=>el.onclick=()=>follow(hits[el.dataset.n|0]))}
 async function follow([s,it]){
  const abbr=(it.abbreviation||it.displayName.slice(0,3)).toUpperCase();
@@ -397,7 +422,7 @@ async function follow([s,it]){
   body:'s='+encodeURIComponent(CAT[s].key)+'&e='+encodeURIComponent(it.id)+
    '&n='+encodeURIComponent(it.displayName)+'&a='+encodeURIComponent(abbr)+
    '&l='+encodeURIComponent(it.league||'')});
- spr.innerHTML='<div class=gh>'+(r.ok?'following '+esc(it.displayName):await r.text())+'</div>';
+ spr.innerHTML='<div class=gh>'+(r.ok?esc(F('web.follow.ok',it.displayName)):esc(await r.text()))+'</div>';
  spq.value='';setTimeout(()=>{spr.innerHTML=''},1500);loadTeams()}
 /* ---- F1 drivers ----
  A grid is twenty-two names, not a search space, so this is a LIST rather than
@@ -424,19 +449,19 @@ async function drivers(){
           rank:g('rank'),pts:g('championshipPts')}})}
 async function doDriverSearch(q){
  const s=CAT.findIndex(c=>c.espn=='racing');
- if(s<0){spr.innerHTML='<div class=gh>this frame has no racing sport</div>';return}
- const mine=++SEQ;spr.innerHTML='<div class=gh>loading the grid&hellip;</div>';
+ if(s<0){spr.innerHTML='<div class=gh>'+esc(T('web.follow.noracing'))+'</div>';return}
+ const mine=++SEQ;spr.innerHTML='<div class=gh>'+esc(T('web.follow.grid'))+'</div>';
  let all;
  try{all=await drivers()}
- catch(e){spfb.style.display='';spr.innerHTML='<div class=gh>ESPN unreachable</div>';return}
+ catch(e){spfb.style.display='';spr.innerHTML='<div class=gh>'+esc(T('web.follow.offline'))+'</div>';return}
  if(mine!=SEQ)return;
  spfb.style.display='none';
  const hits=all.filter(d=>!q||d.displayName.toLowerCase().includes(q.toLowerCase())
                           ||(d.abbreviation||'').toLowerCase().includes(q.toLowerCase()))
               .map(d=>[s,d]);
- if(!hits.length){spr.innerHTML='<div class=gh>no driver matches that</div>';return}
+ if(!hits.length){spr.innerHTML='<div class=gh>'+esc(T('web.follow.nodriver'))+'</div>';return}
  spr.innerHTML=hits.map(([s,d],n)=>`<div class=hit data-n=${n}><b>${esc(d.abbreviation||'')} ${esc(d.displayName)}</b>`+
-  `<i>P${esc(d.rank)} &middot; ${esc(d.pts)} pts</i></div>`).join('');
+  `<i>P${esc(d.rank)} &middot; ${esc(d.pts)} ${esc(T('web.follow.pts'))}</i></div>`).join('');
  [...spr.querySelectorAll('.hit')].forEach(el=>el.onclick=()=>follow(hits[el.dataset.n|0]))}
 /* ---- leagues ----
  ESPN's league list is 570 KB, which is nothing in a browser and impossible on
@@ -449,39 +474,41 @@ async function leaguesFor(espnSport){
  const j=await r.json();
  return LGC[espnSport]=(j.leagues||[]).map(l=>({id:l.slug||String(l.id),name:l.name}));}
 async function doLeagueSearch(q){
- const mine=++SEQ;spr.innerHTML='<div class=gh>loading leagues&hellip;</div>';
+ const mine=++SEQ;spr.innerHTML='<div class=gh>'+esc(T('web.follow.lgload'))+'</div>';
  let hits=[];
  try{for(let s=0;s<CAT.length;s++){
    if(!q&&s>0)break;                       // no query: just show the first sport's
    for(const l of await leaguesFor(CAT[s].espn))
      if(!q||l.name.toLowerCase().includes(q.toLowerCase())||l.id.includes(q.toLowerCase()))
        hits.push([s,l])}}
- catch(e){spfb.style.display='';spr.innerHTML='<div class=gh>ESPN unreachable</div>';return}
+ catch(e){spfb.style.display='';spr.innerHTML='<div class=gh>'+esc(T('web.follow.offline'))+'</div>';return}
  if(mine!=SEQ)return;
- if(!hits.length){spr.innerHTML='<div class=gh>no league matches that</div>';return}
+ if(!hits.length){spr.innerHTML='<div class=gh>'+esc(T('web.follow.nolg'))+'</div>';return}
  const more=hits.length-12;hits=hits.slice(0,12);
  spr.innerHTML=hits.map(([s,l],n)=>`<div class=hit data-n=${n}><b>${esc(l.name)}</b>`+
   `<i>${esc(CAT[s].label)} &middot; ${esc(l.id)}</i></div>`).join('')
-  +(more>0?`<div class=gh>+${more} more &mdash; refine the search</div>`:'');
+  +(more>0?`<div class=gh>${esc(F('web.follow.more',more))}</div>`:'');
  [...spr.querySelectorAll('.hit')].forEach(el=>el.onclick=()=>followLeague(hits[el.dataset.n|0]))}
 async function followLeague([s,l]){
  const r=await fetch('/api/leaguefollow',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
   body:'s='+encodeURIComponent(CAT[s].key)+'&l='+encodeURIComponent(l.id)+'&n='+encodeURIComponent(l.name)});
- spr.innerHTML='<div class=gh>'+(r.ok?'following '+esc(l.name):await r.text())+'</div>';
+ spr.innerHTML='<div class=gh>'+(r.ok?esc(F('web.follow.ok',l.name)):esc(await r.text()))+'</div>';
  spq.value='';setTimeout(()=>{spr.innerHTML=''},1500);loadTeams();loadLive()}
 async function loadTeams(){try{let r=await fetch('/api/teams'),j=await r.json();FOLLOWS=j;spl.innerHTML='';
  CAT.forEach((c,i)=>{const el=document.getElementById('spc'+i);
-  if(el)el.textContent=(j.filter(t=>t.si==i).length||'no')+' followed'});
- if(!j.length){spl.innerHTML='<li class=st>nothing followed yet &mdash; search above</li>';loadLive();return}
+  const k=j.filter(t=>t.si==i).length;
+  if(el)el.textContent=k?F('web.follow.count',k):T('web.follow.countnone')});
+ if(!j.length){spl.innerHTML='<li class=st>'+esc(T('web.follow.empty'))+'</li>';loadLive();return}
  for(const t of j){let li=document.createElement('li');
   /* flag every state that silently stops a follow ever reaching the panel */
-  let why=!t.on?' &middot; sport off':t.kind=='league'?' &middot; whole league'
-        :!t.espn?' &middot; demo only':(!t.lg&&t.sport!='Cricket')?' &middot; no league':'';
+  let why=!t.on?'web.follow.sportoff':t.kind=='league'?'web.follow.league'
+        :!t.espn?'web.follow.demo':(!t.lg&&t.sport!='Cricket')?'web.follow.nolgset':'';
+  why=why?' &middot; '+esc(T(why)):'';
   /* a league's "abbr" is just its slug shouted back — show the name alone */
   let head=t.kind=='league'?`<b>${esc(t.name)}</b>`:`<b>${esc(t.abbr)}</b> ${esc(t.name)}`;
   li.innerHTML=head+` <span class=st>${esc(t.sport)}${why}</span> `;
   let b=document.createElement('button');b.className='x';b.innerHTML='&#10006;';
-  b.title='unfollow';b.onclick=()=>delTeam(t.key);
+  b.title=T('web.follow.unfollow');b.onclick=()=>delTeam(t.key);
   li.appendChild(b);spl.appendChild(li)}
  loadLive()}catch(e){}}
 async function addTeam(){let s=CAT[sps.value|0];if(!s)return;
@@ -518,7 +545,7 @@ function boards(){                    /* unique sport+league pairs worth asking 
  return out.slice(0,6)}                // a hard cap: this is a phone on wifi
 async function loadLive(){
  const bs=boards();
- if(!bs.length){lvw.innerHTML='<div class=gh>follow a team or a league to see what is on</div>';return}
+ if(!bs.length){lvw.innerHTML='<div class=gh>'+esc(T('web.live.none'))+'</div>';return}
  let rows=[];
  try{
   const res=await Promise.all(bs.map(b=>
@@ -533,8 +560,8 @@ async function loadLive(){
     const a=(cp.competitors||[]).find(c=>c.homeAway=='away');
     if(!h||!a)continue;
     rows.push({b,e,cp,st,h,a})}}}
- catch(err){lvw.innerHTML='<div class=gh>could not reach ESPN &mdash; no internet?</div>';return}
- if(!rows.length){lvw.innerHTML='<div class=gh>nothing you follow is playing right now</div>';return}
+ catch(err){lvw.innerHTML='<div class=gh>'+esc(T('web.live.offline'))+'</div>';return}
+ if(!rows.length){lvw.innerHTML='<div class=gh>'+esc(T('web.live.quiet'))+'</div>';return}
  lvw.innerHTML=rows.map((r,n)=>{
   const nm=t=>esc(t.team&&(t.team.abbreviation||t.team.displayName)||'?');
   const sc=t=>esc(t.score==null?'':t.score);
@@ -564,7 +591,7 @@ async function preview(){const s=spfxt.value.split(':')[0];
 async function testFx(){await fetch('/api/scoreevent',{method:'POST',
  headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'e='+encodeURIComponent(spfxt.value.split(':')[1]||'')})}
 spq.oninput=onSearch;
-async function boot(){await loadCat();await loadCfg();await loadTeams();
+async function boot(){await loadLang();await loadCat();await loadCfg();await loadTeams();
  load();loadLogs();loadEv();loadNets();updCheck(0)}
 boot();
 setInterval(loadLogs,2000);
@@ -624,7 +651,7 @@ void handleOtaUpload() {
     if (!otaBegun) return;
     otaBegun = false;
     if (Update.end(true)) {              // validates image + sets boot partition
-      otaScreen("done!");
+      otaScreen(tr("panel.done"));
       logLine("OTA OK (" + String(up.totalSize / 1024) + " KB) - rebooting");
     } else otaFail(Update.errorString());
   } else if (up.status == UPLOAD_FILE_ABORTED) {
@@ -994,6 +1021,25 @@ void setupWeb() {
     if (v != "c" && v != "f") { web.send(400, "text/plain", "use v=c or v=f"); return; }
     ctlSetTempUnit(v == "f");
     web.send(200, "text/plain", "ok");
+  });
+  /* ---- clock format: v=12 or v=24 ---- */
+  web.on("/api/clock", HTTP_POST, []() {
+    String v = web.arg("v");
+    if (v != "12" && v != "24") { web.send(400, "text/plain", "use v=12 or v=24"); return; }
+    ctlSet24h(v == "24");
+    web.send(200, "text/plain", "ok");
+  });
+  /* ---- UI language: v=<code> from LANG_CODES ---- */
+  web.on("/api/lang", HTTP_POST, []() {
+    if (!ctlSetLang(langIndex(web.arg("v")))) {
+      web.send(400, "text/plain", "use v=" + langCodeList());
+      return;
+    }
+    web.send(200, "text/plain", "ok");
+  });
+  /* ---- the dashboard's strings, in the active language ---- */
+  web.on("/api/i18n", HTTP_GET, []() {
+    web.send(200, "application/json; charset=utf-8", ctlI18nJson());
   });
   /* ---- save weather location; weatherTask refetches right away ---- */
   web.on("/api/loc", HTTP_POST, []() {

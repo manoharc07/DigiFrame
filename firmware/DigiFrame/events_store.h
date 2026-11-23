@@ -103,6 +103,8 @@ void saveConfig() {
   d["sportRef"]  = sportRefreshSec;
   d["orient"]    = cfgOrient;
   d["tempF"]     = cfgTempF;
+  d["h24"]       = cfg24h;
+  d["lang"]      = LANG_CODES[cfgLang];   // the code, not the index: survives a reordered lang/ folder
   File f = LittleFS.open("/config.json", "w");
   serializeJson(d, f);
   f.close();
@@ -137,6 +139,11 @@ void loadConfig() {
     if (d["sportRef"].is<int>())          sportRefreshSec = constrain(d["sportRef"].as<int>(), 0, 300);
     if (d["orient"].is<int>())            cfgOrient    = constrain(d["orient"].as<int>(), 0, 3);
     if (d["tempF"].is<bool>())            cfgTempF     = d["tempF"].as<bool>();
+    if (d["h24"].is<bool>())              cfg24h       = d["h24"].as<bool>();
+    if (d["lang"].is<const char*>()) {    // an unknown code keeps the default
+      int li = langIndex(d["lang"].as<String>());
+      if (li >= 0) cfgLang = (uint8_t)li;
+    }
   }
   f.close();
 }

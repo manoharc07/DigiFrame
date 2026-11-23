@@ -204,6 +204,16 @@
    sensor keeps reporting °C and HA applies the user's own unit system. */
 #define TEMP_FAHRENHEIT 0
 
+/* Clock format on the panel: 0 = 12-hour with AM/PM, 1 = 24-hour with a
+   leading zero ("09:05"). Runtime-editable (`h24` in /config.json).
+   Independent of the language — German can still run a 12-hour clock. */
+#define CLOCK_24H 0
+
+/* UI language at first boot: an index into LANG_CODES (lang_data.h, generated
+   from firmware/lang/*.json — 0 = English). Runtime-editable (`lang` in
+   /config.json, stored as the code, e.g. "de"). */
+#define DEFAULT_LANG 0
+
 /* HUB75 colour depth (bits/channel). The DMA framebuffer is
    (PANEL_H/2) * PANEL_W * 2 bytes * depth, DOUBLED because double_buff is on
    — and it must live in internal DRAM, which is the scarcest resource on this

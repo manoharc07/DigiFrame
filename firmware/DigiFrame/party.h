@@ -27,7 +27,7 @@ void startCelebration(const String &type, const String &message) {
   celebType    = type.length() ? type : "custom";
   celebMsg     = message;
   if (!celebMsg.length())                           // default banner per type
-    celebMsg = (celebType == "birthday") ? "HAPPY BIRTHDAY!" : "CELEBRATE!";
+    celebMsg = tr(celebType == "birthday" ? "panel.celeb.birthday" : "panel.celeb.custom");
   celebMsg.toUpperCase();
   celebPhase   = 0;
   celebPhaseAt = millis();
@@ -162,7 +162,7 @@ void runTest() {
     static uint32_t scrollStepAt = 0;
     if (scrollStepAt != testStepAt) {
       scrollStepAt = testStepAt;
-      scrollText = "HELLO! THIS IS A TEST MESSAGE";
+      scrollText = tr("panel.test.msg");
       scrollX = PANEL_W;
     }
     if (renderScroll(C_MSG)) panelPresent();
@@ -183,7 +183,7 @@ void runTest() {
     static uint32_t partyScrollStepAt = 0;
     if (partyScrollStepAt != testStepAt) {
       partyScrollStepAt = testStepAt;
-      scrollText = "CELEBRATION TIME!";
+      scrollText = tr("panel.celeb.time");
       scrollX = PANEL_W;
     }
     if (renderScroll(C_MSG)) {
