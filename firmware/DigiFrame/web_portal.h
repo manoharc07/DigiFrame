@@ -67,10 +67,20 @@ button.x:hover{background:#4a2634;color:#ffb0c4}
 #wl .on{font-size:11px;color:#ff9ab8}
 button.rot{font-size:20px;line-height:1;padding:6px 12px}
 #oriv{min-width:56px;text-align:center;font-size:14px}
-button.tu{min-width:48px;margin-left:6px}button.tu.off{background:#23233a;color:#8a8aa8}</style>
+button.tu{min-width:48px;margin-left:6px}button.tu.off{background:#23233a;color:#8a8aa8}
+/* panel wiring: 14 pins as a 4-wide grid; a bad pin gets an outline */
+#pgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:6px 0}
+#pgrid label{font-size:11px;color:#aab;display:flex;flex-direction:column}
+#pgrid input{margin:2px 0;min-width:0}
+/* wiring-trial banner: same shape as the update banner, amber because it
+   is waiting on the user and will undo itself if ignored */
+#panban{display:none;align-items:center;gap:9px;margin:8px 0;padding:9px 10px;font-size:13px;
+ border-radius:8px;background:#2b2614;border:1px solid #6b5a2f;color:#f0e6c8}
+#panban .g{flex:1;min-width:0}#panban button{padding:6px 10px;font-size:12px;white-space:nowrap}</style>
 </head><body><h1>&#9200; DigiFrame</h1>
 <div id=strip data-t=web.strip.connecting>connecting&hellip;</div>
 <div id=updban></div>
+<div id=panban></div>
 <input type=radio name=tab id=t1 checked><input type=radio name=tab id=t2>
 <input type=radio name=tab id=t3><input type=radio name=tab id=t4>
 <div class=tabs><label for=t1 data-t=web.tab.now>Now</label><label for=t2 data-t=web.tab.scores>Scores</label>
@@ -186,6 +196,18 @@ boots or loses its connection &mdash; tap a name to update its password</div></f
 <input id=mqw type=password placeholder="password" data-tp=web.wifi.pass style="width:45%">
 <button onclick=saveMqtt() data-t=web.save>Save</button>
 <div class=st data-t=web.mqtt.hint>the clock announces itself to Home Assistant via MQTT discovery</div></fieldset>
+<fieldset><legend data-t=web.pan.legend>Panel wiring</legend>
+<details><summary class=st style=cursor:pointer data-t=web.pan.open>change the HUB75 pins and driver</summary>
+<div class=st data-t=web.pan.hint>for matrix boards whose HUB75 pins are fixed by the PCB. Needs an ESP32-S3 with
+16 MB flash and octal PSRAM. New settings are tried for one boot: confirm them, or the frame goes back to
+the old wiring after 10 minutes or a power cycle.</div>
+<div id=pgrid></div>
+<div class=row><label><span data-t=web.pan.drv>driver chip</span> <select id=pdrv onchange=panMark()></select></label></div>
+<div class=row><label><input type=checkbox id=pclk> <span data-t=web.pan.clk>invert clock phase</span></label>
+<label><span data-t=web.pan.lat>latch blanking</span> <input id=plat type=number min=1 max=4 style="width:44px"></label></div>
+<div class=row><button class=x onclick="panFill(PAN.defaults)" data-t=web.pan.defaults>DigiFrame default</button>
+<button onclick=panTry() data-t=web.pan.try>Test these settings</button></div>
+<div class=st id=pst></div></details></fieldset>
 <fieldset><legend data-t=web.fw.legend>Firmware</legend>
 <div class=st><span data-t=web.fw.running>running</span> <b id=fwv>&hellip;</b></div>
 <button onclick="updCheck(1)" data-t=web.fw.check>&#8635; Check for updates</button>
@@ -331,7 +353,7 @@ async function loadCfg(){try{let r=await fetch('/api/config'),j=await r.json();
     the currently live matches takes as long as it takes. Show what it measured. */
  sprefh.textContent=j.sportPoll?F('web.card.ref.took',(j.sportPoll/1000).toFixed(1))
                                :T('web.card.ref.hint');
- CFG=j;drawStrip(j);
+ CFG=j;drawStrip(j);panBanner(j);
  tz.placeholder='UTC'+(j.tz>=0?'+':'')+(j.tz/3600)+'h';tzLoad(j)}catch(e){strip.textContent=T('web.strip.unreachable')}}
 /* ---- time zone ----
  A region carries a POSIX rule, so the frame (newlib) switches summer time by
@@ -626,9 +648,46 @@ async function preview(){const s=spfxt.value.split(':')[0];
  if(!r.ok)await api('scorepreview','v=1')}
 async function testFx(){await fetch('/api/scoreevent',{method:'POST',
  headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'e='+encodeURIComponent(spfxt.value.split(':')[1]||'')})}
+/* ---- panel wiring ----
+ Every change is a trial boot (panel_cfg.h): the frame reboots onto the new
+ pins, shows a test pattern, and goes back to the old wiring unless Keep is
+ pressed here — so a wrong pin can never leave the panel dark for good. The
+ allowed GPIOs come from the frame, so this page marks a bad pin before it
+ is submitted instead of after a reboot. */
+let PAN=null;
+async function loadPanel(){try{PAN=await (await fetch('/api/panel',{cache:'no-store'})).json();
+ if(!pgrid.children.length){
+  pgrid.innerHTML=PAN.names.map((n,i)=>`<label>${esc(n)}<input type=number id=pp${i} min=1 max=48></label>`).join('');
+  pdrv.innerHTML=PAN.drivers.map((d,i)=>`<option value=${i}>${esc(d)}</option>`).join('');
+  pgrid.querySelectorAll('input').forEach(e=>e.oninput=panMark)}
+ panFill(PAN.active)}catch(e){}}
+function panFill(c){if(!c)return;c.pins.forEach((p,i)=>{document.getElementById('pp'+i).value=p});
+ pdrv.value=c.drv;pclk.checked=!!c.clkph;plat.value=c.latblk;panMark()}
+function panRead(){return {pins:PAN.names.map((_,i)=>parseInt(document.getElementById('pp'+i).value,10)),
+ drv:pdrv.value|0,clkph:pclk.checked,latblk:plat.value|0}}
+function panMark(){if(!PAN)return false;const c=panRead();let bad='';
+ c.pins.forEach((p,i)=>{const b=!PAN.gpios.includes(p)||c.pins.indexOf(p)!=i;
+  document.getElementById('pp'+i).style.outline=b?'2px solid #ff5078':'';if(b&&!bad)bad=PAN.names[i]});
+ pst.textContent=bad?F('web.pan.bad',bad):'';return !bad}
+async function panTry(){if(!panMark()||!confirm(T('web.pan.confirm')))return;
+ const r=await fetch('/api/panel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(panRead())});
+ const t=await r.text();if(!r.ok){pst.textContent=t;return}
+ pst.textContent=T('web.pan.rebooting');setTimeout(()=>location.reload(),15000)}
+function panBanner(j){if(!j.panelTrial){panban.style.display='none';panban.dataset.on='';return}
+ if(!panban.dataset.on){panban.dataset.on=1;
+  panban.innerHTML=`<div class=g>${esc(T('web.pan.trial'))} <b id=panleft></b></div>`
+   +`<button onclick=panKeep()>${esc(T('web.pan.keep'))}</button>`
+   +`<button class=x onclick=panRevert()>${esc(T('web.pan.revert'))}</button>`}
+ const s=j.panelTrialLeft|0;
+ panleft.textContent=F('web.pan.left',Math.floor(s/60)+':'+String(s%60).padStart(2,'0'));
+ panban.style.display='flex'}
+async function panKeep(){await fetch('/api/panelkeep',{method:'POST'});panban.dataset.on='';loadCfg();loadPanel()}
+async function panRevert(){if(!confirm(T('web.pan.revertq')))return;
+ await fetch('/api/panelrevert',{method:'POST'});
+ panban.innerHTML='<div class=g>'+esc(T('web.pan.rebooting'))+'</div>';setTimeout(()=>location.reload(),15000)}
 spq.oninput=onSearch;
 async function boot(){await loadLang();await loadCat();await loadCfg();await loadTeams();
- load();loadLogs();loadEv();loadNets();updCheck(0)}
+ load();loadLogs();loadEv();loadNets();loadPanel();updCheck(0)}
 boot();
 setInterval(loadLogs,2000);
 setInterval(loadCfg,5000);       // the status strip is the point of the Now tab
@@ -1057,6 +1116,24 @@ void setupWeb() {
     if (v != "c" && v != "f") { web.send(400, "text/plain", "use v=c or v=f"); return; }
     ctlSetTempUnit(v == "f");
     web.send(200, "text/plain", "ok");
+  });
+  /* ---- panel wiring (panel_cfg.h): every change is a trial boot ---- */
+  web.on("/api/panel", HTTP_GET, []() {
+    web.send(200, "application/json", ctlPanelJson());
+  });
+  /* body: JSON {pins:[14], drv, clkph, latblk} (any subset), or ?defaults=1 */
+  web.on("/api/panel", HTTP_POST, []() {
+    String err = web.hasArg("defaults") ? ctlPanelDefaults() : ctlPanelApplyJson(web.arg("plain"));
+    if (err.length()) { web.send(400, "text/plain", err); return; }
+    web.send(200, "text/plain", "ok - rebooting to try it");
+  });
+  web.on("/api/panelkeep", HTTP_POST, []() {
+    if (!ctlPanelKeep()) { web.send(409, "text/plain", "no wiring trial is running"); return; }
+    web.send(200, "text/plain", "ok");
+  });
+  web.on("/api/panelrevert", HTTP_POST, []() {
+    ctlPanelRevert();
+    web.send(200, "text/plain", "ok - rebooting");
   });
   /* ---- clock format: v=12 or v=24 ---- */
   web.on("/api/clock", HTTP_POST, []() {

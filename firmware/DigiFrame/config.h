@@ -176,9 +176,13 @@
 #define DEV_ENDPOINTS 1
 
 /**********************  2. PIN MAP  **********************************/
-/* HUB75 (adjust freely if your wiring differs — every GPIO works,
-   just avoid 0, 19/20 (USB), 26-32 (flash), 33-37 (PSRAM on N16R8),
-   43/44 (UART), 45/46 (strapping). */
+/* HUB75 wiring DEFAULTS. The dashboard (Settings -> Panel wiring) overrides
+   all of these at runtime via /panel.json — for boards whose HUB75 pins are
+   fixed by the PCB — so editing them here only changes what a fresh install
+   starts on. The allowed GPIOs and why the rest are refused live in
+   panel_cfg.h (PANEL_GPIO_OK): in short, avoid 0, 19/20 (USB), 22-25 (do not
+   exist), 26-32 (flash), 33-37 (octal PSRAM on N16R8), 43/44 (UART),
+   45/46 (strapping). */
 #define R1_PIN 4
 #define G1_PIN 5
 #define B1_PIN 6
@@ -193,6 +197,17 @@
 #define LAT_PIN 40
 #define OE_PIN 2
 #define CLK_PIN 41
+/* Panel options that also vary between boards/panels — runtime-editable
+   alongside the pins. Driver = the HUB75 library's shift_driver enum:
+   0 SHIFTREG (generic), 1 FM6124, 2 FM6126A, 3 ICN2038S, 4 MBI5124, 5 DP3246.
+   Many 64x64 panels stay dark on SHIFTREG and need FM6126A. */
+#define PANEL_DRIVER         0
+#define PANEL_CLKPHASE       false  // flip if the image is shifted by a column
+#define PANEL_LATCH_BLANKING 2      // 1-4; helps ghosting on some P2.5 panels
+/* A new wiring is tried for one boot and reverts unless confirmed on the
+   dashboard within this long — so a wrong pin can never strand the frame
+   on a dark panel (see panel_cfg.h). */
+#define PANEL_TRIAL_MS (10UL * 60000UL)
 
 #define PANEL_W 64
 #define PANEL_H 64

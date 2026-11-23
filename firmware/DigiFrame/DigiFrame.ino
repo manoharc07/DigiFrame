@@ -87,6 +87,7 @@
 #include "textdraw.h"         // UTF-8 text: umlauts/accents + emoji (drawText)
 #include "gif_player.h"
 #include "events_store.h"
+#include "panel_cfg.h"        // runtime HUB75 wiring + its trial boot (before setup uses it)
 #include "sports_core.h"      // live scores: model, favourites store, poll task
 #include "weather.h"
 #include "scene.h"
@@ -115,11 +116,14 @@
    that need a *contiguous* block care about `largest`, not the total, so
    print both around anything big in setup(). */
 static void heapReport(const char *where) {
-  Serial.printf("[heap] %-22s internal free %6u  largest %6u | psram free %7u\n",
-                where,
-                (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-                (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
-                (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+  /* to the dashboard log as well as Serial: a frame on the wall has no cable */
+  char b[112];
+  snprintf(b, sizeof(b), "[heap] %-22s internal free %6u  largest %6u | psram free %7u",
+           where,
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+           (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+  logLine(b);
   Serial.flush();
   delay(20);        // USB-CDC: let the line drain in case the next call abort()s
 
@@ -131,13 +135,33 @@ void setup() {
   delay(300);
   i18nInit();                      // string tables -> PSRAM, before anything draws
 
+  /* ---- the panel's wiring lives on the filesystem, so read it first ----
+     ...but UNMOUNT again before the panel allocates. LittleFS keeps its
+     buffers in internal DRAM for as long as it is mounted, and left there
+     they sit under the 64 KB framebuffer: measured, that cost 4 KB of the
+     largest free block right after dma->begin() and left 8.7 KB (vs 22.5 KB)
+     at the end of setup(). Mount -> read -> end() frees them and keeps the
+     allocation order exactly what it was before the wiring was configurable.
+     NB: the partition is labelled "ffat" (not the LittleFS default
+     "spiffs") — pass the label explicitly or the mount fails. */
+  if (LittleFS.begin(true, "/littlefs", 10, "ffat")) {
+    panelCfgBoot();                // /panel.json, or a one-boot trial (panel_cfg.h)
+    LittleFS.end();
+  } else {
+    panelActive = panelDefaults();
+    Serial.println("LittleFS mount failed - panel on default wiring");
+  }
+
   /* ---- matrix ---- */
-  HUB75_I2S_CFG::i2s_pins pins = { R1_PIN, G1_PIN, B1_PIN, R2_PIN, G2_PIN,
-                                   B2_PIN, A_PIN, B_PIN, C_PIN, D_PIN, E_PIN,
-                                   LAT_PIN, OE_PIN, CLK_PIN };
-  HUB75_I2S_CFG cfg(PANEL_W, PANEL_H, 1, pins);
-  cfg.latch_blanking = 2;          // helps ghosting on some P2.5 panels
-  cfg.clkphase = false;            // flip if you see column shift
+  const PanelCfg &pc = panelActive;
+  HUB75_I2S_CFG::i2s_pins pins = { pc.pins[0], pc.pins[1], pc.pins[2], pc.pins[3],
+                                   pc.pins[4], pc.pins[5], pc.pins[6], pc.pins[7],
+                                   pc.pins[8], pc.pins[9], pc.pins[10], pc.pins[11],
+                                   pc.pins[12], pc.pins[13] };
+  HUB75_I2S_CFG cfg(PANEL_W, PANEL_H, 1, pins,
+                    (HUB75_I2S_CFG::shift_driver)pc.drv);
+  cfg.latch_blanking = pc.latblk;  // helps ghosting on some P2.5 panels
+  cfg.clkphase = pc.clkph;         // flip if you see column shift
   cfg.double_buff = true;          // back-buffer drawing; flip atomically → zero tearing/flicker
   cfg.setPixelColorDepthBits(PANEL_COLOR_DEPTH);   // internal-DRAM budget — see config.h
   cfg.i2sspeed        = PANEL_I2S_HZ;      // pixel clock — see config.h
@@ -157,10 +181,7 @@ void setup() {
   dma->setTextSize(1);
   drawText(1, 12, tr("panel.hello"), 1, C_TIME);
 
-  /* ---- filesystem + persisted config (may override WiFi/TG creds) ----
-     NB: the fatflash partition scheme labels the data partition "ffat"
-     (not the LittleFS default "spiffs") — pass the label explicitly or
-     the mount fails and nothing (config/GIFs) ever persists. */
+  /* ---- filesystem + persisted config (may override WiFi/TG creds) ---- */
   if (!LittleFS.begin(true, "/littlefs", 10, "ffat"))
     Serial.println("LittleFS mount failed!");
   seedDefaultGifs();          // one-time copy of the embedded default pack
@@ -202,6 +223,9 @@ void setup() {
     logLine("WiFi FAILED — starting setup hotspot");
     startPortal();
   }
+  /* a wiring trial boots into the test pattern (the hotspot's QR wins if
+     there is no WiFi: the user needs it to reach Keep at all) */
+  if (panelTrial && mode != MODE_SETUP) mode = MODE_PANELTEST;
 
   /* ---- time (IST) — SNTP keeps retrying once a network appears ---- */
   applyTimezone();                 // POSIX rule (auto summer time) or fixed offset
@@ -290,7 +314,8 @@ void loop() {
     // night mode (skipped during a celebration; setup QR must stay scannable).
     // Night is a *cap*, not a fixed level: it dims down to NIGHT_BRIGHTNESS,
     // but a lower manual setting still wins — so the slider works at night.
-    if (mode != MODE_CELEBRATE && mode != MODE_SETUP) {
+    panelTick();                 // an unconfirmed panel trial reverts itself
+    if (mode != MODE_CELEBRATE && mode != MODE_SETUP && mode != MODE_PANELTEST) {
       bool night = (tmNow.tm_hour >= NIGHT_START_HR && tmNow.tm_hour < NIGHT_END_HR);
       uint8_t target = userBrightness;
       if (night && target > NIGHT_BRIGHTNESS) target = NIGHT_BRIGHTNESS;
@@ -369,6 +394,10 @@ void loop() {
     }
   }
 
+  /* --- reboot requested by a panel-wiring apply/revert (panel_cfg.h) ---
+         deferred so the dashboard got its HTTP reply first --- */
+  if (panelRebootAt && (int32_t)(ms - panelRebootAt) >= 0) ESP.restart();
+
   /* --- one-click firmware update, requested by the dashboard -----------
          Deliberately here and not inside the /api/update handler: that
          handler runs inside web.handleClient(), and updateInstall() stops
@@ -443,6 +472,9 @@ void loop() {
       break;
     case MODE_SETUP:
       renderSetupQR();             // static QR; redraws only when it changes
+      break;
+    case MODE_PANELTEST:
+      if (frameDue) { renderPanelTest(); panelPresent(); }
       break;
   }
 

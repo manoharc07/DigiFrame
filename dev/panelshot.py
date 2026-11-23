@@ -69,7 +69,7 @@ if hasattr(sys.stdout, "reconfigure"):
 OUT_DIR = Path(__file__).resolve().parent / "shots"
 
 # mode ids from the Mode enum in globals.h, for the X-Mode response header
-MODE_NAMES = ["CLOCK", "MSG", "GIF", "CELEBRATE", "TEST", "SETUP"]
+MODE_NAMES = ["CLOCK", "MSG", "GIF", "CELEBRATE", "TEST", "SETUP", "PANELTEST"]
 
 
 def int_list(text: str) -> list[int]:

@@ -454,6 +454,46 @@ bool ctlSetLang(int idx) {
   return true;
 }
 
+/* ---- panel wiring (panel_cfg.h) ----
+   Dashboard only — see panel_cfg.h for why there is no Telegram/MQTT door. */
+
+/* Start from the ACTIVE wiring and apply the JSON on top, so a client can
+   send just the fields it changes. "" or the reason it was refused. */
+String ctlPanelApplyJson(const String &json) {
+  JsonDocument d;
+  if (deserializeJson(d, json)) return "bad JSON";
+  PanelCfg c = panelActive;
+  String err = panelCfgFromJson(d.as<JsonVariantConst>(), c);
+  return err.length() ? err : panelApply(c);
+}
+String ctlPanelDefaults() { return panelApply(panelDefaults()); }
+bool   ctlPanelKeep()     { return panelKeep(); }
+void   ctlPanelRevert()   { panelRevert("reverted from the dashboard"); }
+
+/* Everything the wiring form needs in one call: what is running, what is
+   saved, what a fresh install uses, and the rules for valid input — the
+   page marks a bad pin before it is ever submitted. */
+String ctlPanelJson() {
+  JsonDocument d;
+  panelCfgToJson(panelActive, d["active"].to<JsonObject>());
+  PanelCfg saved = panelDefaults();
+  bool haveSaved = panelCfgRead("/panel.json", saved);
+  panelCfgToJson(saved, d["saved"].to<JsonObject>());
+  d["custom"] = haveSaved;
+  panelCfgToJson(panelDefaults(), d["defaults"].to<JsonObject>());
+  JsonArray n = d["names"].to<JsonArray>();
+  for (const char *s : PANEL_PIN_NAMES) n.add(s);
+  JsonArray dr = d["drivers"].to<JsonArray>();
+  for (const char *s : PANEL_DRIVERS) dr.add(s);
+  JsonArray ok = d["gpios"].to<JsonArray>();
+  for (uint8_t g : PANEL_GPIO_OK) ok.add(g);
+  d["trial"]     = panelTrial;
+  d["trialLeft"] = panelTrialLeftSec();
+  String out;
+  serializeJson(d, out);
+  return out;
+}
+
 /* The dashboard's string table: every web.* key, resolved to the active
    language with the English fallback already applied, so the page needs one
    fetch and no fallback logic of its own. Built by hand rather than through a
@@ -603,6 +643,8 @@ String ctlStatusJson() {
   d["orient"]   = cfgOrient;
   d["tempF"]    = cfgTempF;
   d["h24"]      = cfg24h;
+  d["panelTrial"]     = panelTrial;          // a wiring trial is waiting for Keep
+  d["panelTrialLeft"] = panelTrialLeftSec();
   d["lang"]     = LANG_CODES[cfgLang];
   {
     /* every compiled-in language with its own name for itself ("Deutsch"),

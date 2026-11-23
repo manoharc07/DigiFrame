@@ -44,7 +44,7 @@ Compile-time **defaults** live in `config.h` (WiFi SSID/pass, `BOT_TOKEN`, `ALLO
 Single translation unit: `DigiFrame.ino` includes ordered `.h` files (order matters — later headers may call earlier ones; forward decls for `handleTelegram()`/`fetchWeather()` sit in `globals.h`). The actual include order in `DigiFrame.ino` is:
 
 ```
-config → globals → i18n → textdraw → gif_player → events_store → sports_core → weather → scene
+config → globals → i18n → textdraw → gif_player → events_store → panel_cfg → sports_core → weather → scene
        → score_gfx → score_fx → sports_registry → espn_api → score_widget
        → scroll → party → updater → control → telegram → web_portal → mqtt_ha → qr_display → wifi_manager
 ```
@@ -68,6 +68,7 @@ Preserve this order when adding a new header — e.g. anything using the DMA pan
 | `i18n.h` | **UI strings by key**: `tr("panel.dow.1")`, `trf()` (printf), `trIn()`, `trMatchesAny()` — see "Localisation" below |
 | `lang_data.h` | auto-generated from `firmware/lang/*.json` (do not edit — run `firmware/tools/make_lang.ps1`) |
 | `default_gifs.h` | auto-generated embedded default GIF pack (do not edit — run `firmware/tools/make_default_gifs.ps1`) |
+| `panel_cfg.h` | **runtime HUB75 wiring**: the 14 pins + driver/clock-phase/latch from `/panel.json`, the allowed-GPIO table, validation, the trial boot (`panelCfgBoot`/`panelApply`/`panelKeep`/`panelRevert`/`panelTick`) and the `MODE_PANELTEST` pattern — see "Panel wiring" below |
 | `events_store.h` | `/events.json` special days + `/config.json` persisted config + `/wifi.json` saved networks (`netsUpsertFront`/`netsForget`/`netsPromote` are pure over a passed table so `/api/devtest?nets=` can exercise them) |
 | `sports_core.h` | **live scores, data layer** (no drawing): `LiveMatch`/`Side`/`EventKind`/`SportModule`, `/teams.json` favourites store, the provider seam `sportsPoll()`, `sportsTask` (core 0), event diffing + the 4-slot priority event ring, and `sportsTick()` (core 1) which drives the `SUB_SCORE` sub-mode |
 | `score_gfx.h` | live scores, shared drawing toolkit: card chrome, team bars, the auto-sizing score line, ticker, pills, bars, odometer, and the flash/wipe/ring/shards/scanline/spark building blocks |
@@ -90,7 +91,7 @@ Preserve this order when adding a new header — e.g. anything using the DMA pan
 
 Everything runs on a dual-core FreeRTOS setup. The critical structural fact is the **core split and command queue** — get this wrong and you will race LittleFS against the DMA renderer.
 
-- **Core 1 (`loop()`):** render loop. Owns the HUB75 DMA panel, AnimatedGIF decoder, mode state (`MODE_CLOCK/MSG/GIF/CELEBRATE/TEST/SETUP`), `WebServer` (port 80), DNSServer processing, and `wifiManagerTick()`.
+- **Core 1 (`loop()`):** render loop. Owns the HUB75 DMA panel, AnimatedGIF decoder, mode state (`MODE_CLOCK/MSG/GIF/CELEBRATE/TEST/SETUP/PANELTEST`), `WebServer` (port 80), DNSServer processing, and `wifiManagerTick()`.
 - **Core 0 tasks:** `tgTask` (Telegram polling; also applies dashboard token changes via the `tgTokenDirty` flag — only this task touches the bot client), `weatherTask`, `mqttTask` (Home Assistant — only active when MQTT is enabled with a broker host), and `sportsTask` (live scores; 8192 stack because a real provider's JSON is far larger than Open-Meteo's). Score data is *strings*, so unlike `wTemp`/`wCode` it cannot be handed over lock-free: `sportsTask` fills `scoreBack[]` under `sportsMutex` and `sportsTick()` (core 1) copies into `scoreFront[]`, which the renderer then reads unlocked. Every string in `LiveMatch` is a fixed `char[]` for the same reason `cfgLat`/`cfgLon` are.
 - **Cross-core handoff:** `tgTask` and **`mqttTask`** (both core 0) parse input and call `postTgCmd(...)` (single `TgRequest` slot guarded by `tgReqMutex`); `loop()` drains it and calls the `control.h` `ctl*` functions on core 1 (`openGif`/mode/LittleFS/`saveConfig`). New actions from either task must follow this pattern — never touch LittleFS/DMA from core 0. `TgRequest` carries a second string (wifi pass / lon / chat) and a PSRAM `buf` for GIF uploads (freed by core 1 after `TGC_GIF_COMMIT`).
 - **One implementation per action:** the HTTP dashboard (`web_portal.h`, core 1) calls `ctl*` directly; Telegram and MQTT (core 0) marshal to them via the queue. Every front-end therefore behaves identically — add new config actions in `control.h`, then wire a thin handler per front-end.
@@ -223,6 +224,44 @@ swallowed. Rules worth keeping:
 - Single line only: a newline is laid out as a space. Multiline paging is a
   separate feature.
 
+### Panel wiring (`panel_cfg.h`)
+
+The `*_PIN` defines in `config.h` are now only **defaults**. The 14 HUB75 pins,
+the driver chip (`HUB75_I2S_CFG::shift_driver`), clock phase and latch blanking
+come from `/panel.json` (`{pins:[R1,G1,B1,R2,G2,B2,A,B,C,D,E,LAT,OE,CLK],drv,
+clkph,latblk}`), set from Settings → Panel wiring — for all-in-one matrix
+boards whose pins are fixed by the PCB. It does not make the firmware run on
+other modules: the build still assumes an ESP32-S3 with 16 MB flash and octal
+PSRAM.
+
+- **Every change is a trial boot.** `/api/panel` writes `/panel_try.json` and
+  reboots; boot renames it to `/panel_trying.json` and runs on it in
+  `MODE_PANELTEST` (R/G/B/W bars, a border, a top-left marker, `KEEP?`).
+  `/api/panelkeep` renames it to `/panel.json`. A boot that finds a leftover
+  `/panel_trying.json` — the user power-cycled a dark panel — deletes it and
+  boots on the old wiring; `PANEL_TRIAL_MS` (10 min) unconfirmed does the
+  same. Every state is decided by which files exist, so a power cut at any
+  point lands somewhere sane. Deleting `/panel.json` is a complete reset.
+- **Read the wiring before `dma->begin()`, then UNMOUNT.** LittleFS keeps its
+  buffers in internal DRAM while mounted, and mounted early they sat under the
+  64 KB framebuffer: measured, 4 KB off the largest block after
+  `dma->begin()`. `setup()` mounts, runs `panelCfgBoot()`, calls
+  `LittleFS.end()`, and mounts again at the old place — the boot heap line is
+  byte-identical in largest block to the build before this feature.
+- **The allowed GPIOs are one table (`PANEL_GPIO_OK`), shared with the
+  page.** Refused, with the reason in the 400: 0/45/46 strapping, 19/20 USB,
+  22-25 nonexistent, 26-32 flash, 33-37 octal PSRAM, 43/44 UART0.
+  `test_panel_cfg.py` checks the `config.h` defaults pass, the reserved ranges
+  stay out, and `PANEL_DRIVERS` matches the library enum order (the index is
+  what `/panel.json` stores).
+- **Dashboard only — no Telegram or MQTT door.** Wiring is set up once, at the
+  frame; a remote command that can darken the panel has no place on a bot.
+- **The device suite never applies a valid wiring** — it reboots the frame,
+  the same reason it never POSTs `/api/wifi`. It tests refusals only.
+- **`dev/panelshot.py` cannot judge wiring**: it captures the image the
+  firmware meant to draw, not what the wires made of it. The test pattern is
+  for the user's eyes.
+
 ### WiFi / setup-portal flow
 
 Boot: `wifiConnect(20s)` → on failure `startPortal()` (AP `DigiFrame`/`digiframe123` + captive DNS + `MODE_SETUP` QR). While the portal is up, STA retries stored creds every 30 s; any successful connect (old router back, or new creds saved over HTTP) triggers `stopPortal()`. At runtime, a sustained outage of `WIFI_FAIL_PORTAL_MIN` (5 min) reopens the portal.
@@ -250,11 +289,12 @@ The intended replacement is an **outbound relay** — the frame connects out to 
 - **Double-buffered DMA** (`cfg.double_buff = true`). Draw a full frame, then `dma->flipDMABuffer()` — do not draw incrementally on the visible buffer or you will tear. The setup QR is static: it paints **both** buffers once and redraws only when its text changes. On the ESP32-S3 `flipDMABuffer()` is **non-blocking** — it only re-points the DMA descriptor chain, and the controller keeps scanning the buffer just handed over until the end of the current pass. Code that flips twice back to back must wait `panelScanPeriodMs()` (globals.h) in between; the normal one-flip-per-frame path is already spaced by the frame clock.
 - **One frame clock, no private gates.** `loop()` owns the only render cadence: it advances a phase-correcting deadline in exact `FRAME_MS` steps (`RENDER_FPS` in config.h), sets `frameDue` for exactly one pass per frame, and increments `frameNo`. Renderers test `frameDue` and read `frameNo`; they must **not** reintroduce their own `millis() - last > N` gate or call `frameNo++`. Independent gates drift out of phase and each one resets to *now* after an overrun, so a single slow pass permanently shifts that renderer's cadence — accumulated phase error is what the stutter was. GIF playback is the one exception: it paces on the GIF's own inter-frame delay via `playGifFrameIfDue()` (gif_player.h), which is deliberately non-blocking, unlike `playFrame(bSync=true)` which `delay()`s inside the decoder and stalls the whole core.
 - **Core 1's loop() is its scheduler.** The Arduino core calls `loop()` back to back with no yield, so anything unconditional there runs tens of thousands of times a second. Network servicing (`web.handleClient()` + `wifiManagerTick()`) is throttled to `NET_SERVICE_MS`, `wifiManagerTick()`'s housekeeping to `WIFI_TICK_MS` (its captive-portal DNS still runs at the full rate), and the pass ends with `vTaskDelay(1)` when no frame is due. `Serial.setTxTimeoutMs(SERIAL_TX_TIMEOUT_MS)` is applied after `setup()` so a `logLine()` cannot block core 1 on the USB-CDC tx lock.
-- **Night mode** is applied every second in `loop()` and is intentionally **skipped during `MODE_CELEBRATE` and `MODE_SETUP`** (QR must stay scannable).
+- **Night mode** is applied every second in `loop()` and is intentionally **skipped during `MODE_CELEBRATE`, `MODE_SETUP` and `MODE_PANELTEST`** (QR must stay scannable; the wiring test is judged by eye at full brightness).
 - **Auto-celebration trigger** compares `todayMMDD()` to `lastCelebDate` and, on a match, runs `startCelebration(day.type, day.message)`; skipped while `portalActive`. Manual `/celebrate` (and the HA celebrate) deliberately does **not** set `lastCelebDate` — preserve this distinction so a manual preview isn't force-ended at date rollover.
 - **GIF playback:** `gifIsUserPlay` distinguishes user plays (loop forever) from ambient cameos (play once). On decode error, close and fall back to `MODE_CLOCK`.
 - **GIF disposal 2 clears the PREVIOUS frame's rectangle, to black.** AnimatedGIF reports each frame's method and leaves honouring it to `GIFDraw()`: `gifFrameStart()` (first line of each frame) clears the rect a disposal-2 frame left behind. Transparent pixels always keep what is underneath. Two wrong versions came before: painting `pal[ucBackground]` into the current frame's transparent pixels (that entry is white in many GIFs — the white halo) and painting them black (holes punched through earlier frames). Neither cleared the previous frame, so moving sprites left trails.
 - **Time zone = a POSIX rule or a fixed offset.** `cfgTzRule` (e.g. `CET-1CEST,M3.5.0,M10.5.0/3`) goes to `configTzTime()` and newlib switches summer time by itself; empty falls back to `tzOffsetSec`. `applyTimezone()` is the one place that applies either. Never convert a UTC timestamp with `mktime()` minus `tzOffsetSec` — `mktime()` is local time and that is an hour off for half the year under a rule; use `utcEpoch()` (globals.h), which ignores TZ entirely. `/api/config` reports `utcNow`, the offset in force right now.
+- **SNTP starts only once there is a link, and only after `netPrimeDns()`.** The ESP32 core (3.3.x) clears lwIP's DNS cache on the first `hostByName()` after the station gets an IP — without the lwIP core lock. If SNTP has a lookup in flight then, its callback runs from the wrong context and lwIP asserts ("Required to lock TCPIP core"): a panic, captured on this frame from the first weather fetch in `setup()`. Software reboots made it likely, because the RTC keeps the time across `ESP.restart()` and the wait-for-sync loop exits at once. `netPrimeDns()` spends that one-time clear on a throwaway lookup before SNTP is started; offline, `applyTimezone()` only sets `TZ` and `stopPortal()` calls it again on the first connection. Five back-to-back software reboots after the fix: no panic. Do not move `configTime`/`configTzTime` ahead of it.
 - **`SUB_SCORE` is a sub-mode of `MODE_CLOCK`, not a mode.** `renderClock()` always draws the clock block in rows 0-18; only rows 19-63 branch — ambient scene + footer, or the live-score card. Keep it that way: the clock must never disappear, and every other mode (`MSG`/`GIF`/`CELEBRATE`/`TEST`/`SETUP`) keeps working untouched. `sportsTick()` owns the switch and returns early during `MODE_TEST` so `/test` can drive the card itself. On leaving the card it sets `sceneNeedsReset` so the ambient scene restarts instead of resuming a sprite mid-walk.
 
 ### Seeing the UI (dev tooling)

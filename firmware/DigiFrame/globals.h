@@ -73,10 +73,44 @@ int  tzOffsetSec     = TZ_OFFSET_SEC;   // UTC offset in seconds (runtime-config
    ctlSetTzRule), and a fixed buffer for the same reason cfgLat is. */
 char cfgTzRule[48]   = TZ_RULE;
 
+/* Work around a crash in the ESP32 core (3.3.x, NetworkManager.cpp): the
+   first hostByName() after the station gets an IP calls dns_clear_cache()
+   WITHOUT the lwIP core lock. If SNTP has a DNS lookup in flight at that
+   moment, clearing the cache fires SNTP's callback from the wrong context,
+   it opens a UDP pcb, and lwIP asserts "Required to lock TCPIP core" —
+   a panic in whatever task did the lookup. Measured on this frame: a software
+   reboot keeps the RTC time, so setup()'s wait-for-sync loop exits at once
+   and the first weather fetch landed squarely on SNTP's pending lookup.
+
+   So the one-time cache clear is spent HERE, on purpose, before SNTP ever
+   starts: SNTP is only started once a link exists (applyTimezone), and
+   always after this. Offline, the time zone is applied to the C library
+   alone and SNTP waits for the first connection. */
+void netPrimeDns() {
+  static bool primed = false;
+  if (primed || WiFi.status() != WL_CONNECTED) return;
+  IPAddress ip;
+  WiFi.hostByName("pool.ntp.org", ip);     // result unused: the side effect is the point
+  primed = true;
+}
+
+/* The zone without SNTP: what configTime() would set, minus the network. */
+static void setTzEnv() {
+  if (cfgTzRule[0]) { setenv("TZ", cfgTzRule, 1); tzset(); return; }
+  int w = -tzOffsetSec;                     // POSIX counts west as positive
+  char tz[24];
+  snprintf(tz, sizeof(tz), "UTC%s%d:%02d", w < 0 ? "-" : "+", abs(w) / 3600, (abs(w) % 3600) / 60);
+  setenv("TZ", tz, 1);
+  tzset();
+}
+
 /* Point the C library's local time at the configured zone and (re)start
    SNTP. A rule gets newlib's DST handling for free — localtime_r() then
-   switches between winter and summer time on its own. */
+   switches between winter and summer time on its own. Offline, only the
+   zone is applied; call again once connected to start SNTP (stopPortal). */
 void applyTimezone() {
+  if (WiFi.status() != WL_CONNECTED) { setTzEnv(); return; }
+  netPrimeDns();
   if (cfgTzRule[0]) configTzTime(cfgTzRule, "pool.ntp.org", "time.google.com");
   else              configTime(tzOffsetSec, 0, "pool.ntp.org", "time.google.com");
 }
@@ -242,7 +276,9 @@ void postTgCmd(TgCmd cmd, const String &str = "", uint8_t i = 0,
   xSemaphoreGive(tgReqMutex);
 }
 
-enum Mode { MODE_CLOCK, MODE_MSG, MODE_GIF, MODE_CELEBRATE, MODE_TEST, MODE_SETUP };
+/* Append only: the dashboard and Home Assistant see these as numbers/names. */
+enum Mode { MODE_CLOCK, MODE_MSG, MODE_GIF, MODE_CELEBRATE, MODE_TEST, MODE_SETUP,
+            MODE_PANELTEST };   // wiring test pattern during a panel trial (panel_cfg.h)
 Mode mode = MODE_CLOCK;
 
 /* ---- frame clock (core 1) -------------------------------------------

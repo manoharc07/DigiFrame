@@ -86,8 +86,12 @@ themed celebrations on your special days. Configure and control it from the
 
 The panel is driven over the 16-pin **HUB75E** header on the panel's **input**
 side (the arrow points *away* from IN; some panels label it `J1`/`IN`). The
-GPIO assignments live in [`config.h`](firmware/DigiFrame/config.h) — change them freely, just
-avoid the reserved pins noted there. Defaults for the ESP32-S3:
+GPIO assignments below are the defaults in [`config.h`](firmware/DigiFrame/config.h). If your
+board's HUB75 pins are fixed by its PCB, set them on the dashboard instead
+(**Settings → Panel wiring**, along with the driver chip, clock phase and
+latch blanking) — no recompile. A new wiring is tried for one boot with a
+colour test pattern and goes back to the old one unless you press **Keep**,
+so a wrong pin cannot leave the panel dark for good. Defaults for the ESP32-S3:
 
 | HUB75 signal | Meaning            | ESP32-S3 GPIO |
 |--------------|--------------------|:-------------:|
